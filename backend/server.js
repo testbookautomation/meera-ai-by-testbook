@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Readable } = require('stream');
+const { pathToFileURL } = require('url');
 
 // Ensure logs directory exists
 const logsDir = process.env.VERCEL ? path.join('/tmp', 'logs') : path.join(__dirname, 'logs');
@@ -2272,7 +2273,7 @@ async function sendWebResponse(res, webResponse) {
 
 async function handleFrontendRequest(req, res, next) {
   try {
-    const serverEntry = await import(frontendServerPath);
+    const serverEntry = await import(pathToFileURL(frontendServerPath).href);
     const handler = serverEntry.default?.fetch || serverEntry.default?.a1?.fetch;
     if (!handler) return next();
 
