@@ -3,7 +3,7 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "functions": {
-    "api/index.cjs": {
+    "api/index.js": {
       "memory": 1024,
       "maxDuration": 60,
       "includeFiles": "dist/**"
@@ -12,7 +12,7 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/api/index.cjs"
+      "destination": "/api/index.js"
     }
   ]
 }
