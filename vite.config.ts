@@ -11,7 +11,7 @@ export default defineConfig({
     server: {
       allowedHosts: true,
       proxy: {
-        // Local dev only. Production /api/* is handled by api/index.cjs as a serverless function.
+        // Local dev only. Production /api/* is handled by api/index.js as a serverless function.
         "/api": {
           target: "http://127.0.0.1:3001",
           changeOrigin: true,
