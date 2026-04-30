@@ -10,6 +10,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "postinstall": "node -e \"if (process.platform === 'linux') require('child_process').execFileSync('npm', ['rebuild', 'sqlite3', '--build-from-source'], { stdio: 'inherit' })\"",
     "preview": "vite preview",
     "start": "node backend/server.cjs",
     "dev:backend": "node backend/server.cjs",
