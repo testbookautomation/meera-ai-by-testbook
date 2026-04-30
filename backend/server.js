@@ -668,7 +668,11 @@ let cachedAdminToken = null;
 let cachedAdminTokenAt = 0;
 const ADMIN_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
 
-app.get('/', (req, res) => {
+app.get('/', (req, res, next) => {
+  if (fs.existsSync(frontendClientPath) && fs.existsSync(frontendServerPath)) {
+    return next();
+  }
+
   res.send('Testbook AI Mentor Backend is running on port 3001. Please ensure ngrok is pointing to the FRONTEND port (usually 5173 or 8082) for the UI to work.');
 });
 
@@ -2253,7 +2257,7 @@ Data missing → "Data load error. App reload karein."`;
 });
 
 const frontendClientPath = path.join(__dirname, '..', 'dist', 'client');
-const frontendServerPath = path.join(__dirname, '..', 'dist', 'server', 'index.js');
+const frontendServerPath = path.join(__dirname, '..', 'dist', 'server', 'server.js');
 
 async function sendWebResponse(res, webResponse) {
   res.status(webResponse.status);
