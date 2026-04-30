@@ -222,21 +222,15 @@ function maskValue(value) {
   return `${text.slice(0, 2)}***${text.slice(-2)}`;
 }
 
-const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
-const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const OPENAI_CHAT_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const GOOGLE_TTS_API_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 let cachedGoogleTtsAccessToken = null;
 let cachedGoogleTtsAccessTokenExpiresAt = 0;
 
-function getClaudeApiKey() {
-  return process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-}
-
-function getGeminiApiKey() {
-  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+function getOpenAiApiKey() {
+  return process.env.OPENAI_API_KEY;
 }
 
 function getGoogleTtsApiKey() {
@@ -344,7 +338,7 @@ async function getGoogleTtsRequestAuth() {
   return null;
 }
 
-function toClaudeMessages(messages) {
+function toOpenAiMessages(messages) {
   const normalized = [];
 
   for (const message of messages) {
@@ -363,59 +357,28 @@ function toClaudeMessages(messages) {
   return normalized.length > 0 ? normalized : [{ role: 'user', content: 'Hello' }];
 }
 
-function toGeminiContents(messages) {
-  const normalized = [];
-
-  for (const message of messages) {
-    const role = message.role === 'model' || message.role === 'assistant' ? 'model' : 'user';
-    const text = cleanText(message.parts?.[0]?.text || message.content || message.text, 4000);
-    if (!text) continue;
-
-    const previous = normalized[normalized.length - 1];
-    if (previous?.role === role) {
-      previous.parts[0].text += `\n\n${text}`;
-    } else {
-      normalized.push({ role, parts: [{ text }] });
-    }
-  }
-
-  return normalized.length > 0 ? normalized : [{ role: 'user', parts: [{ text: 'Hello' }] }];
-}
-
-function getGeminiText(data) {
-  return (data.candidates?.[0]?.content?.parts || [])
-    .map(part => part.text || '')
-    .join('')
-    .trim();
-}
-
-async function callGeminiOnce({ apiKey, systemPrompt, contents, maxTokens }) {
+async function callOpenAIOnce({ apiKey, systemPrompt, messages, maxTokens }) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.GEMINI_TIMEOUT_MS || 60000));
-  const model = encodeURIComponent(GEMINI_MODEL);
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.OPENAI_TIMEOUT_MS || 60000));
 
   let response;
   try {
-    response = await fetch(`${GEMINI_API_BASE_URL}/models/${model}:generateContent`, {
+    response = await fetch(OPENAI_CHAT_API_URL, {
       method: 'POST',
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey
+        Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        contents,
-        generationConfig: {
-          maxOutputTokens: maxTokens,
-          temperature: Number(process.env.GEMINI_TEMPERATURE || 0.35),
-          topP: Number(process.env.GEMINI_TOP_P || 0.9),
-          thinkingConfig: {
-            thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET || 0)
-          }
-        }
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages
+        ],
+        max_tokens: maxTokens,
+        temperature: Number(process.env.OPENAI_TEMPERATURE || 0.35),
+        top_p: Number(process.env.OPENAI_TOP_P || 0.9)
       })
     });
   } catch (error) {
@@ -428,139 +391,42 @@ async function callGeminiOnce({ apiKey, systemPrompt, contents, maxTokens }) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data.error?.message || 'Gemini API Error';
+    const message = data.error?.message || 'OpenAI API Error';
     const err = new Error(message);
     err.statusCode = response.status === 429 ? 503 : response.status;
     throw err;
   }
 
-  const text = getGeminiText(data);
-  const finishReason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason || null;
+  const text = data.choices?.[0]?.message?.content?.trim() || '';
+  const finishReason = data.choices?.[0]?.finish_reason || null;
   if (!text) {
-    const err = new Error(finishReason ? `Gemini returned no text. Finish reason: ${finishReason}` : 'Gemini returned an empty response. Please try again.');
-    err.statusCode = finishReason === 'SAFETY' ? 400 : 502;
+    const err = new Error(finishReason ? `OpenAI returned no text. Finish reason: ${finishReason}` : 'OpenAI returned an empty response. Please try again.');
+    err.statusCode = 502;
     throw err;
   }
 
-  const usage = data.usageMetadata || {};
+  const usage = data.usage || {};
   return {
     text,
     usage: {
-      input_tokens: usage.promptTokenCount || 0,
-      output_tokens: usage.candidatesTokenCount || 0,
-      total_tokens: usage.totalTokenCount || 0
+      input_tokens: usage.prompt_tokens || 0,
+      output_tokens: usage.completion_tokens || 0,
+      total_tokens: usage.total_tokens || 0
     },
     stopReason: finishReason
   };
 }
 
-async function callGemini({ systemPrompt, messages, maxTokens = 3600 }) {
-  const apiKey = getGeminiApiKey();
+async function callOpenAI({ systemPrompt, messages, maxTokens = 3600 }) {
+  const apiKey = getOpenAiApiKey();
   if (!apiKey) {
-    const err = new Error('Gemini API key is missing. Add GEMINI_API_KEY in backend/.env and deployment env vars.');
+    const err = new Error('OpenAI API key is missing. Add OPENAI_API_KEY in backend/.env and deployment env vars.');
     err.statusCode = 503;
     throw err;
   }
 
-  const normalizedContents = toGeminiContents(messages);
-  const first = await callGeminiOnce({
-    apiKey,
-    systemPrompt,
-    contents: normalizedContents,
-    maxTokens
-  });
-
-  let text = first.text;
-  let usage = first.usage;
-  let stopReason = first.stopReason;
-
-  if (stopReason === 'MAX_TOKENS') {
-    const continuationContents = [
-      ...normalizedContents,
-      { role: 'model', parts: [{ text }] },
-      {
-        role: 'user',
-        parts: [{
-          text: 'Continue from exactly where you stopped. Do not repeat anything already written. Finish all remaining required sections and end with the mandatory Abhi karo CTA.'
-        }]
-      }
-    ];
-    const continuation = await callGeminiOnce({
-      apiKey,
-      systemPrompt,
-      contents: continuationContents,
-      maxTokens: Number(process.env.GEMINI_CONTINUATION_MAX_TOKENS || 1800)
-    });
-
-    text = `${text}\n\n${continuation.text}`.trim();
-    usage = {
-      input_tokens: (usage.input_tokens || 0) + (continuation.usage.input_tokens || 0),
-      output_tokens: (usage.output_tokens || 0) + (continuation.usage.output_tokens || 0),
-      total_tokens: (usage.total_tokens || 0) + (continuation.usage.total_tokens || 0)
-    };
-    stopReason = continuation.stopReason;
-  }
-
-  return { text, usage, stopReason };
-}
-
-async function callClaudeOnce({ apiKey, systemPrompt, messages, maxTokens }) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.CLAUDE_TIMEOUT_MS || 45000));
-
-  let response;
-  try {
-    response = await fetch(CLAUDE_API_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: maxTokens,
-        system: systemPrompt,
-        messages
-      })
-    });
-  } catch (error) {
-    const err = new Error(error?.name === 'AbortError' ? 'AI provider timed out.' : 'AI provider unavailable.');
-    err.statusCode = 503;
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = data.error?.message || 'Claude API Error';
-    const err = new Error(message);
-    err.statusCode = response.status === 429 ? 503 : response.status;
-    throw err;
-  }
-
-  const text = data.content?.map(part => part.text || '').join('').trim();
-  if (!text) {
-    const err = new Error('Claude returned an empty response. Please try again.');
-    err.statusCode = 502;
-    throw err;
-  }
-
-  return { text, usage: data.usage || {}, stopReason: data.stop_reason || null };
-}
-
-async function callClaude({ systemPrompt, messages, maxTokens = 3200 }) {
-  const apiKey = getClaudeApiKey();
-  if (!apiKey) {
-    const err = new Error('Claude API key is missing. Add ANTHROPIC_API_KEY in backend/.env and restart the backend.');
-    err.statusCode = 503;
-    throw err;
-  }
-
-  const normalizedMessages = toClaudeMessages(messages);
-  const first = await callClaudeOnce({
+  const normalizedMessages = toOpenAiMessages(messages);
+  const first = await callOpenAIOnce({
     apiKey,
     systemPrompt,
     messages: normalizedMessages,
@@ -571,7 +437,7 @@ async function callClaude({ systemPrompt, messages, maxTokens = 3200 }) {
   let usage = first.usage;
   let stopReason = first.stopReason;
 
-  if (stopReason === 'max_tokens') {
+  if (stopReason === 'length') {
     const continuationMessages = [
       ...normalizedMessages,
       { role: 'assistant', content: text },
@@ -580,17 +446,18 @@ async function callClaude({ systemPrompt, messages, maxTokens = 3200 }) {
         content: 'Continue from exactly where you stopped. Do not repeat anything already written. Finish all remaining required sections and end with the mandatory Abhi karo CTA.'
       }
     ];
-    const continuation = await callClaudeOnce({
+    const continuation = await callOpenAIOnce({
       apiKey,
       systemPrompt,
       messages: continuationMessages,
-      maxTokens: Number(process.env.CLAUDE_CONTINUATION_MAX_TOKENS || 1400)
+      maxTokens: Number(process.env.OPENAI_CONTINUATION_MAX_TOKENS || 1800)
     });
 
     text = `${text}\n\n${continuation.text}`.trim();
     usage = {
       input_tokens: (usage.input_tokens || 0) + (continuation.usage.input_tokens || 0),
-      output_tokens: (usage.output_tokens || 0) + (continuation.usage.output_tokens || 0)
+      output_tokens: (usage.output_tokens || 0) + (continuation.usage.output_tokens || 0),
+      total_tokens: (usage.total_tokens || 0) + (continuation.usage.total_tokens || 0)
     };
     stopReason = continuation.stopReason;
   }
@@ -1611,7 +1478,7 @@ app.get('/api/analysis/:userid', async (req, res) => {
         const targetScore = Math.min(totalMarks, Math.round(displayScore + 15));
         const scoreDiff = Math.max(5, targetScore - displayScore);
 
-        // ── CLAUDE AI INSIGHT ─────────────────────────────────────────────────
+        // AI insight
         const topicNames = weakTopics.map(t => t.name).filter(Boolean);
         let aiInsight = topicNames.length >= 2
           ? `Fixing ${topicNames[0]} & ${topicNames[1]} can boost your score by +${scoreDiff} marks.`
@@ -1632,7 +1499,7 @@ Data:
 
 Format EXACTLY: "Fixing [Topic1] & [Topic2] can boost your score by +[N] marks." — use the real topic names above. No filler words.`;
 
-            const insightData = await callClaude({
+            const insightData = await callOpenAI({
               systemPrompt: 'You write concise exam-performance insights.',
               messages: [{ role: 'user', parts: [{ text: insightPrompt }] }],
               maxTokens: 80
@@ -2068,8 +1935,8 @@ app.post('/api/ai-mentor/chat', mentorChatLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Message is required.' });
     }
 
-    if (!getGeminiApiKey()) {
-      const err = new Error("Gemini API key is missing. Add GEMINI_API_KEY in backend/.env and restart the backend.");
+    if (!getOpenAiApiKey()) {
+      const err = new Error("OpenAI API key is missing. Add OPENAI_API_KEY in backend/.env and restart the backend.");
       err.statusCode = 503;
       throw err;
     }
@@ -2202,17 +2069,17 @@ Data missing → "Data load error. App reload karein."`;
       formattedMessages.push({ role: 'user', parts: [{ text: messageText }] });
     }
 
-    const { text: fullText, usage, stopReason } = await callGemini({
+    const { text: fullText, usage, stopReason } = await callOpenAI({
       systemPrompt,
       messages: formattedMessages,
-      maxTokens: Number(process.env.GEMINI_MAX_TOKENS || 3600)
+      maxTokens: Number(process.env.OPENAI_MAX_TOKENS || 3600)
     });
 
     const inTokens = usage.input_tokens || 0;
     const outTokens = usage.output_tokens || 0;
     const totalTokens = usage.total_tokens || inTokens + outTokens;
 
-    const logMsg = `[${new Date().toISOString()}] [AI Mentor API] Provider: Gemini | Model: ${GEMINI_MODEL} | Tokens used - Input: ${inTokens} | Output: ${outTokens} | Total: ${totalTokens} | Stop: ${stopReason || 'unknown'}\n`;
+    const logMsg = `[${new Date().toISOString()}] [AI Mentor API] Provider: OpenAI | Model: ${OPENAI_MODEL} | Tokens used - Input: ${inTokens} | Output: ${outTokens} | Total: ${totalTokens} | Stop: ${stopReason || 'unknown'}\n`;
     console.log(logMsg.trim());
     fs.appendFileSync(path.join(logsDir, 'token_usage.log'), logMsg);
 
