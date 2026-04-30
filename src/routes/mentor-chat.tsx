@@ -61,6 +61,11 @@ const MEERA_PAYWALL_AVATAR_URL =
 const MEERA_EXIT_AVATAR_URL =
   "https://cdn.testbook.com/1777531366276-ChatGPT%20Image%20Apr%2030%2C%202026%2C%2012_11_29%20PM%20%282%29.png/1777531367.png";
 
+const MAX_RESPONSE_TEXT_CHARS = 9000;
+const MAX_VOICE_TEXT_CHARS = 1400;
+const STREAM_WORDS_PER_TICK = 8;
+const STREAM_TICK_MS = 45;
+
 type LanguageCode = "english" | "hindi" | "hinglish";
 
 const LANGUAGE_OPTIONS: {
@@ -222,12 +227,22 @@ function buildSuggestionTabs(query: string, analysis?: any) {
 }
 
 function cleanTextForVoice(text: string) {
-  return String(text || "")
+  const cleaned = String(text || "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/[`*_>#|~]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  return cleaned.length > MAX_VOICE_TEXT_CHARS
+    ? `${cleaned.slice(0, MAX_VOICE_TEXT_CHARS).trim()}...`
+    : cleaned;
+}
+
+function normalizeResponseText(text: string) {
+  const normalized = String(text || "").trim();
+  if (normalized.length <= MAX_RESPONSE_TEXT_CHARS) return normalized;
+  return `${normalized.slice(0, MAX_RESPONSE_TEXT_CHARS).trim()}\n\nResponse trimmed for smooth display. Ask Meera to continue for the next part.`;
 }
 
 function MentorChatPage() {
@@ -773,13 +788,15 @@ function MentorChatPage() {
       const abortController = new AbortController();
       responseAbortControllerRef.current = abortController;
 
-      const fullText = await sendAiMentorMessage({
-        userId: userid || "demo_user",
-        message: userText,
-        history: conversationHistory,
-        responseLanguage,
-        signal: abortController.signal,
-      });
+      const fullText = normalizeResponseText(
+        await sendAiMentorMessage({
+          userId: userid || "demo_user",
+          message: userText,
+          history: conversationHistory,
+          responseLanguage,
+          signal: abortController.signal,
+        }),
+      );
       responseAbortControllerRef.current = null;
       trackEvent(userid, "ai_response_received", "mentor_chat", {
         prompt: userText,
@@ -816,13 +833,14 @@ function MentorChatPage() {
         }
 
         if (index < words.length) {
-          currentText += (index === 0 ? "" : " ") + words[index];
+          const nextWords = words.slice(index, index + STREAM_WORDS_PER_TICK);
+          currentText += (index === 0 ? "" : " ") + nextWords.join(" ");
           setMessages((prev) =>
             prev.map((m) =>
               m.id === botMsgId ? { ...m, text: currentText } : m,
             ),
           );
-          index++;
+          index += STREAM_WORDS_PER_TICK;
         } else {
           if (streamIntervalRef.current)
             clearInterval(streamIntervalRef.current);
@@ -836,9 +854,8 @@ function MentorChatPage() {
             wordCount: words.length,
             durationMs: Date.now() - responseStartedAt,
           });
-          void speakText(fullText, botMsgId, true);
         }
-      }, 25);
+      }, STREAM_TICK_MS);
     } catch (error: any) {
       if (stopRequestedRef.current || responseRunIdRef.current !== runId)
         return;
