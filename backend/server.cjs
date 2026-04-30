@@ -394,6 +394,8 @@ async function callOpenAIOnce({ apiKey, systemPrompt, messages, maxTokens }) {
     const message = data.error?.message || 'OpenAI API Error';
     const err = new Error(message);
     err.statusCode = response.status === 429 ? 503 : response.status;
+    err.providerErrorCode = data.error?.code || '';
+    err.providerErrorType = data.error?.type || '';
     throw err;
   }
 
@@ -422,6 +424,7 @@ async function callOpenAI({ systemPrompt, messages, maxTokens = 3600 }) {
   if (!apiKey) {
     const err = new Error('OpenAI API key is missing. Add OPENAI_API_KEY in backend/.env and deployment env vars.');
     err.statusCode = 503;
+    err.exposeToClient = true;
     throw err;
   }
 
@@ -466,6 +469,22 @@ async function callOpenAI({ systemPrompt, messages, maxTokens = 3600 }) {
 }
 
 function isAiProviderBusy(error) {
+  const message = String(error?.message || '').toLowerCase();
+  const code = String(error?.providerErrorCode || '').toLowerCase();
+  const type = String(error?.providerErrorType || '').toLowerCase();
+
+  if (
+    error?.exposeToClient ||
+    message.includes('api key is missing') ||
+    code.includes('invalid_api_key') ||
+    code.includes('insufficient_quota') ||
+    type.includes('invalid_request_error') ||
+    type.includes('authentication_error') ||
+    type.includes('insufficient_quota')
+  ) {
+    return false;
+  }
+
   return [429, 502, 503, 504].includes(Number(error?.statusCode));
 }
 
@@ -1938,6 +1957,7 @@ app.post('/api/ai-mentor/chat', mentorChatLimiter, async (req, res) => {
     if (!getOpenAiApiKey()) {
       const err = new Error("OpenAI API key is missing. Add OPENAI_API_KEY in backend/.env and restart the backend.");
       err.statusCode = 503;
+      err.exposeToClient = true;
       throw err;
     }
 
