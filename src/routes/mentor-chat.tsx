@@ -1,0 +1,1877 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState, useEffect, useRef } from "react";
+import {
+  Send,
+  Sparkles,
+  CheckCircle2,
+  ArrowRight,
+  X,
+  Lightbulb,
+  Trophy,
+  Target,
+  Zap,
+  ChevronLeft,
+  Mic,
+  Menu,
+  History,
+  Download,
+  Volume2,
+  VolumeX,
+  MessageSquare,
+  BookOpen,
+  GraduationCap,
+  Languages,
+} from "lucide-react";
+import { jsPDF } from "jspdf";
+import { installGlobalEventTracking, trackEvent } from "../utils/tracking";
+import { sendAiMentorMessage } from "@/services/aiMentorApi";
+import { fetchLmsAnalysis } from "@/services/lmsApi";
+import { openRazorpayCheckout } from "@/services/razorpay";
+import { synthesizeSpeech } from "@/services/ttsApi";
+
+type SearchParams = { userid?: string };
+
+export const Route = createFileRoute("/mentor-chat")({
+  validateSearch: (search: Record<string, unknown>): SearchParams => ({
+    userid: search.userid as string | undefined,
+  }),
+  component: MentorChatPage,
+});
+
+interface Message {
+  id: string;
+  from: "bot" | "user";
+  text: string;
+  timestamp: Date;
+  isPlan?: boolean;
+  planData?: any;
+}
+
+const DEFAULT_SUGGESTIONS = [
+  "Can you give me my report in PDF?",
+  "What are my recommended tests?",
+  "Analyze my weak topics in detail",
+  "Give me a 7-day study sprint",
+];
+
+const MEERA_CHAT_AVATAR_URL =
+  "https://cdn.testbook.com/1777459230137-Untitled_design__6_-removebg-preview.png/1777462110.png";
+const MEERA_PAYWALL_AVATAR_URL =
+  "https://cdn.testbook.com/1777529686714-ChatGPT_Image_Apr_30__2026__11_43_10_AM-removebg-preview.png/1777529687.png";
+const MEERA_EXIT_AVATAR_URL =
+  "https://cdn.testbook.com/1777531366276-ChatGPT%20Image%20Apr%2030%2C%202026%2C%2012_11_29%20PM%20%282%29.png/1777531367.png";
+
+type LanguageCode = "english" | "hindi" | "hinglish";
+
+const LANGUAGE_OPTIONS: {
+  value: LanguageCode;
+  label: string;
+  shortLabel: string;
+}[] = [
+  { value: "english", label: "English", shortLabel: "EN" },
+  { value: "hindi", label: "Hindi", shortLabel: "HI" },
+  { value: "hinglish", label: "Hinglish", shortLabel: "HING" },
+];
+
+const UI_TRANSLATIONS: Record<LanguageCode, any> = {
+  english: {
+    assistant_subtitle: "Smart AI Assistant",
+    thinking: "Meera Thinking..",
+    typing: "Meera Typing...",
+    input_placeholder: "Message Meera AI...",
+    listening: "Listening...",
+    maybe_later: "Maybe later",
+    pro_member: "PRO",
+    hello: "Hello",
+    im_meera: "I'm Meera AI.",
+    default_greet:
+      "I'm ready to analyze your Testbook performance. Share your latest mock results or ask me anything!",
+    analysis_greet:
+      "I've analyzed your performance in the **{testName}**. You scored **{scoreLabel}** with **{accuracy}%** accuracy{rank}.\n\nI've found specific gaps in your preparation. Would you like a personalized strategy to improve your score?",
+    unlock_pro: "Unlock Pro Access",
+    pro_desc: "Unlimited AI strategy, tests & doubt solving.",
+    pay_unlock: "Pay ₹20 & Unlock",
+    features: [
+      "Unlimited AI Questions & Strategy",
+      "Daily Customized Action Plans",
+      "Unlock All Topic Tests & Analytics",
+    ],
+  },
+  hindi: {
+    assistant_subtitle: "स्मार्ट AI असिस्टेंट",
+    thinking: "मीरा सोच रही है..",
+    typing: "मीरा टाइप कर रही है...",
+    input_placeholder: "मीरा AI को मैसेज करें...",
+    listening: "सुन रहा हूँ...",
+    maybe_later: "बाद में",
+    pro_member: "प्रो",
+    hello: "नमस्ते",
+    im_meera: "मैं मीरा AI हूँ।",
+    default_greet:
+      "मैं आपके टेस्टबुक प्रदर्शन का विश्लेषण करने के लिए तैयार हूँ। अपने नवीनतम मॉक परिणाम साझा करें या मुझसे कुछ भी पूछें!",
+    analysis_greet:
+      "मैंने **{testName}** में आपके प्रदर्शन का विश्लेषण किया है। आपने **{accuracy}%** सटीकता के साथ **{scoreLabel}** स्कोर किया है{rank}।\n\nमुझे आपकी तैयारी में कुछ कमियाँ मिली हैं। क्या आप अपना स्कोर सुधारने के लिए एक व्यक्तिगत रणनीति चाहेंगे?",
+    unlock_pro: "प्रो एक्सेस अनलॉक करें",
+    pro_desc: "असीमित AI रणनीति, टेस्ट और डाउट सॉल्विंग।",
+    pay_unlock: "₹20 भुगतान करें और अनलॉक करें",
+    features: [
+      "असीमित AI प्रश्न और रणनीति",
+      "दैनिक अनुकूलित कार्य योजनाएं",
+      "सभी टॉपिक टेस्ट और एनालिटिक्स अनलॉक करें",
+    ],
+  },
+  hinglish: {
+    assistant_subtitle: "Smart AI Assistant",
+    thinking: "Meera soch rahi hai..",
+    typing: "Meera type kar rahi hai...",
+    input_placeholder: "Meera AI ko message karein...",
+    listening: "Sun raha hoon...",
+    maybe_later: "Baad mein",
+    pro_member: "PRO",
+    hello: "Hello",
+    im_meera: "Main Meera AI hoon.",
+    default_greet:
+      "Main aapki Testbook performance analyze karne ke liye ready hoon. Apne latest mock results share karein ya mujhse kuch bhi puchein!",
+    analysis_greet:
+      "Maine **{testName}** mein aapki performance analyze ki hai. Aapne **{accuracy}%** accuracy ke saath **{scoreLabel}** score kiya hai{rank}.\n\nMujhe aapki prep mein kuch gaps mile hain. Kya aap score improve karne ke liye personalized strategy chahenge?",
+    unlock_pro: "Unlock Pro Access",
+    pro_desc: "Unlimited AI strategy, tests & doubt solving.",
+    pay_unlock: "Pay ₹20 & Unlock",
+    features: [
+      "Unlimited AI Questions & Strategy",
+      "Daily Customized Action Plans",
+      "Unlock All Topic Tests & Analytics",
+    ],
+  },
+};
+
+function normalizeSuggestionText(text: string) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0900-\u097f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildSuggestionTabs(query: string, analysis?: any) {
+  const normalizedQuery = normalizeSuggestionText(query);
+  const weakTopics = Array.isArray(analysis?.weakTopics)
+    ? analysis.weakTopics
+        .map((topic: any) => topic?.topic || topic?.name)
+        .filter(Boolean)
+    : [];
+
+  const weakTopic = weakTopics[0] || "my weak topic";
+  const secondWeakTopic = weakTopics[1] || weakTopic;
+  const thirdWeakTopic = weakTopics[2] || weakTopic;
+
+  const pushUnique = (items: string[], value: string) => {
+    if (value && !items.includes(value)) items.push(value);
+  };
+
+  const chips: string[] = [];
+  const isPdf = /pdf|report|download/.test(normalizedQuery);
+  const isTest = /recommended|mock|test|attempt|practice/.test(normalizedQuery);
+  const isWeak = /weak|topic|chapter|chapter-wise/.test(normalizedQuery);
+  const isTime = /time|speed|manage|slow/.test(normalizedQuery);
+  const isScore = /score|rank|accuracy|percentile|marks/.test(normalizedQuery);
+  const isPlan = /plan|sprint|study|routine/.test(normalizedQuery);
+
+  if (isPdf) {
+    pushUnique(chips, "Download my report as PDF");
+    pushUnique(chips, "Show weak topics");
+    pushUnique(chips, "Compare my last 10 tests");
+    pushUnique(chips, "Give me a study plan");
+  } else if (isTest) {
+    pushUnique(chips, `Show tests for ${weakTopic}`);
+    pushUnique(chips, "Give me direct Testbook links");
+    pushUnique(chips, "Show chapter-wise practice");
+    pushUnique(chips, "What should I attempt next?");
+  } else if (isWeak) {
+    pushUnique(chips, `Drill ${weakTopic}`);
+    pushUnique(chips, `Fix ${secondWeakTopic}`);
+    pushUnique(chips, "Show chapter-wise analysis");
+    pushUnique(chips, "Explain my weak areas");
+  } else if (isTime) {
+    pushUnique(chips, "Show time per section");
+    pushUnique(chips, "Where do I lose time?");
+    pushUnique(chips, "Give me speed drills");
+    pushUnique(chips, "Set section time targets");
+  } else if (isScore) {
+    pushUnique(chips, "How can I improve my score?");
+    pushUnique(chips, "Show score trend");
+    pushUnique(chips, "Show accuracy breakdown");
+    pushUnique(chips, "Rank vs marks comparison");
+  } else if (isPlan) {
+    pushUnique(chips, "Give me a 7-day study sprint");
+    pushUnique(chips, `Focus on ${weakTopic}`);
+    pushUnique(chips, `Fix ${secondWeakTopic}`);
+    pushUnique(chips, "Set daily targets");
+  } else {
+    pushUnique(chips, `Drill ${weakTopic}`);
+    pushUnique(chips, "Show weak topics");
+    pushUnique(chips, "Recommend a test");
+    pushUnique(chips, "Give me a 7-day study sprint");
+  }
+
+  if (weakTopics.length > 2) {
+    pushUnique(chips, `Fix ${thirdWeakTopic}`);
+  }
+
+  return chips.slice(0, 4);
+}
+
+function cleanTextForVoice(text: string) {
+  return String(text || "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[`*_>#|~]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function MentorChatPage() {
+  const { userid: searchUserid } = Route.useSearch();
+  const navigate = useNavigate();
+  const [userid, setUserid] = useState<string>("demo_user");
+  const [userData, setUserData] = useState<any>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [aiThoughts, setAiThoughts] = useState<string[]>([]);
+  const [messageCount, setMessageCount] = useState(0);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
+  const [isPro, setIsPro] = useState(false);
+  const [showCancelPopup, setShowCancelPopup] = useState(false);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [loadingStage, setLoadingStage] = useState<
+    "thinking" | "typing" | null
+  >(null);
+  const [responseLanguage, setResponseLanguage] =
+    useState<LanguageCode>("english");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceAbortControllerRef = useRef<AbortController | null>(null);
+  const speakingIdRef = useRef<string | null>(null);
+  const hasUserInteractedRef = useRef(false);
+  const thoughtIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const responseAbortControllerRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
+  const responseRunIdRef = useRef(0);
+  const useridRef = useRef(userid);
+  const aiBusy = isTyping || isStreaming;
+
+  useEffect(() => {
+    useridRef.current = userid;
+  }, [userid]);
+
+  useEffect(() => {
+    speakingIdRef.current = speakingId;
+  }, [speakingId]);
+
+  useEffect(
+    () => installGlobalEventTracking(() => useridRef.current, "mentor_chat"),
+    [],
+  );
+
+  const stopVoiceOutput = (eventName = "ai_voice_stopped") => {
+    const activeMessageId = speakingIdRef.current;
+    voiceAbortControllerRef.current?.abort();
+    voiceAbortControllerRef.current = null;
+
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause();
+      voiceAudioRef.current.currentTime = 0;
+      voiceAudioRef.current = null;
+    }
+    window.speechSynthesis?.cancel();
+
+    speakingIdRef.current = null;
+    setSpeakingId(null);
+    if (activeMessageId) {
+      trackEvent(useridRef.current, eventName, "mentor_chat", {
+        messageId: activeMessageId,
+      });
+    }
+  };
+
+  const speakWithBrowserVoiceFallback = (
+    voiceText: string,
+    msgId: string,
+    auto: boolean,
+    reason: string,
+  ) => {
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+      return false;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(voiceText);
+    utterance.lang = responseLanguage === "hindi" ? "hi-IN" : "en-IN";
+
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice =
+      voices.find(
+        (voice) =>
+          voice.name.includes("Google") &&
+          (voice.lang.includes("hi") || voice.lang.includes("en-IN")),
+      ) || voices.find((voice) => voice.lang === utterance.lang);
+    if (preferredVoice) utterance.voice = preferredVoice;
+
+    speakingIdRef.current = msgId;
+    setSpeakingId(msgId);
+    utterance.onend = () => {
+      speakingIdRef.current = null;
+      setSpeakingId(null);
+      trackEvent(useridRef.current, "ai_voice_finished", "mentor_chat", {
+        messageId: msgId,
+        fallback: true,
+      });
+    };
+    utterance.onerror = () => {
+      speakingIdRef.current = null;
+      setSpeakingId(null);
+      trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
+        messageId: msgId,
+        fallback: true,
+      });
+    };
+
+    trackEvent(
+      useridRef.current,
+      "ai_voice_browser_fallback_started",
+      "mentor_chat",
+      {
+        messageId: msgId,
+        auto,
+        reason,
+      },
+    );
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    return true;
+  };
+
+  const speakText = async (text: string, msgId: string, auto = false) => {
+    if (speakingIdRef.current === msgId) {
+      stopVoiceOutput();
+      return;
+    }
+
+    stopVoiceOutput("ai_voice_replaced");
+
+    const voiceText = cleanTextForVoice(text);
+    if (!voiceText) return;
+
+    const abortController = new AbortController();
+    voiceAbortControllerRef.current = abortController;
+    speakingIdRef.current = msgId;
+    setSpeakingId(msgId);
+    trackEvent(
+      useridRef.current,
+      auto ? "ai_voice_auto_started" : "ai_voice_started",
+      "mentor_chat",
+      {
+        messageId: msgId,
+        textLength: voiceText.length,
+        responseLanguage,
+      },
+    );
+
+    try {
+      const audio = await synthesizeSpeech({
+        text: voiceText,
+        responseLanguage,
+        signal: abortController.signal,
+      });
+
+      if (abortController.signal.aborted) return;
+
+      const player = new Audio(
+        `data:${audio.mimeType};base64,${audio.audioContent}`,
+      );
+      voiceAudioRef.current = player;
+      player.onended = () => {
+        voiceAudioRef.current = null;
+        voiceAbortControllerRef.current = null;
+        speakingIdRef.current = null;
+        setSpeakingId(null);
+        trackEvent(useridRef.current, "ai_voice_finished", "mentor_chat", {
+          messageId: msgId,
+        });
+      };
+      player.onerror = () => {
+        voiceAudioRef.current = null;
+        voiceAbortControllerRef.current = null;
+        speakingIdRef.current = null;
+        setSpeakingId(null);
+        trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
+          messageId: msgId,
+        });
+      };
+
+      await player.play();
+    } catch (error) {
+      if (abortController.signal.aborted) return;
+
+      const message = error instanceof Error ? error.message : "unknown";
+      if (speakWithBrowserVoiceFallback(voiceText, msgId, auto, message)) {
+        voiceAbortControllerRef.current = null;
+        voiceAudioRef.current = null;
+        return;
+      }
+
+      voiceAbortControllerRef.current = null;
+      voiceAudioRef.current = null;
+      speakingIdRef.current = null;
+      setSpeakingId(null);
+      trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
+        messageId: msgId,
+        auto,
+        error: message,
+      });
+    }
+  };
+
+  const [activeSuggestions, setActiveSuggestions] =
+    useState(DEFAULT_SUGGESTIONS);
+
+  useEffect(() => {
+    // 1. Clean UID from URL → sessionStorage → demo fallback
+    let rawUid =
+      searchUserid || sessionStorage.getItem("current_userid") || "demo_user";
+    const effectiveUid = rawUid.replace(/["\\]/g, "");
+    let hasCachedData = false;
+
+    setUserid(effectiveUid);
+    sessionStorage.setItem("current_userid", effectiveUid);
+    setLoading(true);
+    trackEvent(effectiveUid, "ai_chat_opened", "mentor_chat");
+
+    // 2. Reuse cached data only if it belongs to the same user
+    const stored = localStorage.getItem("currentUserData");
+    let localIsPro = false;
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed?.user?.userid === effectiveUid) {
+          setUserData(parsed);
+          localIsPro = !!parsed.isPro;
+          setIsPro(localIsPro);
+          initChat(parsed.user?.name || "Aspirant", parsed.latestAnalysis);
+          setActiveSuggestions(buildSuggestionTabs("", parsed.latestAnalysis));
+          hasCachedData = true;
+          setLoading(false);
+        }
+      } catch {
+        localStorage.removeItem("currentUserData");
+      }
+    }
+
+    // 3. Always fetch FRESH from the LMS API — no cache
+    const controller = new AbortController();
+
+    fetchLmsAnalysis(effectiveUid, { signal: controller.signal })
+      .then((freshData) => {
+        const isPaidUser = freshData.isPro || localIsPro;
+        freshData.isPro = isPaidUser;
+        trackEvent(effectiveUid, "lms_analysis_loaded", "mentor_chat", {
+          isPro: isPaidUser,
+          hasLatestAnalysis: !!freshData.latestAnalysis,
+          weakTopicCount: Array.isArray(freshData.latestAnalysis?.weakTopics)
+            ? freshData.latestAnalysis.weakTopics.length
+            : 0,
+        });
+
+        localStorage.setItem("currentUserData", JSON.stringify(freshData));
+        setUserData(freshData);
+        setIsPro(isPaidUser);
+        initChat(freshData.user?.name || "Aspirant", freshData.latestAnalysis);
+        setActiveSuggestions(buildSuggestionTabs("", freshData.latestAnalysis));
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        console.error("[Mentor Chat] LMS fetch failed:", err);
+        trackEvent(effectiveUid, "lms_analysis_failed", "mentor_chat", {
+          error: err?.message || "unknown",
+        });
+        if (!hasCachedData) {
+          initChat("Aspirant", null);
+        }
+        setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [searchUserid]);
+
+  useEffect(() => {
+    if (!hasUserInteractedRef.current && userData) {
+      initChat(userData.user?.name || "Aspirant", userData.latestAnalysis);
+    }
+  }, [responseLanguage]);
+
+  const initChat = (name: string, analysis: any) => {
+    const cleanName = name?.toLowerCase().includes("testbook")
+      ? "Aspirant"
+      : name?.split(" ")[0] || "Aspirant";
+
+    const rawScore =
+      typeof analysis?.score === "number" ? analysis.score : null;
+    const totalMarks = analysis?.totalMarks || null;
+    const accuracy =
+      typeof analysis?.accuracy === "number" ? analysis.accuracy : null;
+    const testName = analysis?.testName || null;
+    const rank = analysis?.rank || null;
+
+    const t = UI_TRANSLATIONS[responseLanguage] || UI_TRANSLATIONS.english;
+    let greetBody = "";
+    if (testName && totalMarks !== null && rawScore !== null) {
+      const scoreLabel =
+        rawScore < 0
+          ? `${rawScore} (negative marking)`
+          : `${rawScore}/${totalMarks}`;
+      const rankText = rank
+        ? responseLanguage === "hindi"
+          ? ` (रैंक ${rank})`
+          : ` (Rank ${rank})`
+        : "";
+
+      greetBody = t.analysis_greet
+        .replace("{testName}", testName)
+        .replace("{scoreLabel}", scoreLabel)
+        .replace("{accuracy}", String(accuracy ?? "—"))
+        .replace("{rank}", rankText);
+    } else {
+      greetBody = t.default_greet;
+    }
+
+    const welcomeMsg: Message = {
+      id: "welcome",
+      from: "bot",
+      text: `${t.hello} ${cleanName}! ${t.im_meera} ${greetBody}`,
+      timestamp: new Date(),
+    };
+    setMessages((prev) =>
+      hasUserInteractedRef.current && prev.length > 0 ? prev : [welcomeMsg],
+    );
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping, isStreaming, aiThoughts]);
+
+  useEffect(() => {
+    return () => {
+      if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+      responseAbortControllerRef.current?.abort();
+      voiceAbortControllerRef.current?.abort();
+      voiceAudioRef.current?.pause();
+    };
+  }, []);
+
+  const toggleListening = () => {
+    if (isListening) {
+      setIsListening(false);
+      trackEvent(userid, "voice_input_stopped", "mentor_chat");
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      trackEvent(userid, "voice_input_unsupported", "mentor_chat");
+      alert("Voice input is not supported in your browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      trackEvent(userid, "voice_input_started", "mentor_chat");
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results)
+        .map((result: any) => result[0])
+        .map((result: any) => result.transcript)
+        .join("");
+      setInput(transcript);
+      trackEvent(userid, "voice_input_transcript", "mentor_chat", {
+        length: transcript.length,
+        transcript,
+      });
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      trackEvent(userid, "voice_input_error", "mentor_chat", {
+        error: event.error,
+      });
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      trackEvent(userid, "voice_input_ended", "mentor_chat");
+    };
+
+    recognition.start();
+  };
+
+  const handleSend = (textToSend?: string) => {
+    if (isTyping || isStreaming) return;
+
+    const msgText = textToSend || input;
+    if (!msgText.trim()) return;
+    stopVoiceOutput();
+
+    if (!isPro && messageCount >= 3) {
+      trackEvent(userid, "paywall_shown", "mentor_chat", {
+        reason: "free_message_limit",
+        attemptedMessage: msgText,
+        messageCount,
+      });
+      setShowPaywall(true);
+      return;
+    }
+
+    const newUserMsg: Message = {
+      id: Math.random().toString(),
+      from: "user",
+      text: msgText,
+      timestamp: new Date(),
+    };
+    const historyForApi = [...messages, newUserMsg].map((m) => ({
+      from: m.from,
+      text: m.text,
+    }));
+
+    hasUserInteractedRef.current = true;
+    setMessages((prev) => [...prev, newUserMsg]);
+    if (!textToSend) setInput("");
+    setMessageCount((prev) => prev + 1);
+
+    // Track interactions
+    if (textToSend) {
+      trackEvent(userid, "ai_chat_suggestion_clicked", "mentor_chat", {
+        suggestion: msgText,
+      });
+      trackEvent(userid, "ai_message_sent", "mentor_chat", {
+        source: "suggestion",
+        message: msgText,
+        length: msgText.length,
+        messageCount: messageCount + 1,
+        responseLanguage,
+      });
+    } else {
+      trackEvent(userid, "ai_message_sent", "mentor_chat", {
+        source: "typed",
+        message: msgText,
+        length: msgText.length,
+        messageCount: messageCount + 1,
+        responseLanguage,
+      });
+    }
+
+    setActiveSuggestions(
+      buildSuggestionTabs(msgText, userData?.latestAnalysis),
+    );
+
+    stopRequestedRef.current = false;
+    responseRunIdRef.current += 1;
+    const runId = responseRunIdRef.current;
+    if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
+    if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    responseAbortControllerRef.current?.abort();
+    responseAbortControllerRef.current = null;
+
+    setIsTyping(true);
+    setLoadingStage("thinking");
+    setAiThoughts([]);
+
+    const thoughts = [
+      "Analyzing your latest mock test data...",
+      "Identifying weak patterns and time sinks...",
+      "Cross-referencing with topper strategies...",
+    ];
+
+    let thoughtIndex = 0;
+    thoughtIntervalRef.current = setInterval(() => {
+      if (stopRequestedRef.current || responseRunIdRef.current !== runId) {
+        if (thoughtIntervalRef.current)
+          clearInterval(thoughtIntervalRef.current);
+        thoughtIntervalRef.current = null;
+        return;
+      }
+
+      if (thoughtIndex < thoughts.length) {
+        setAiThoughts((prev) => [...prev, thoughts[thoughtIndex]]);
+        thoughtIndex++;
+      } else {
+        if (thoughtIntervalRef.current)
+          clearInterval(thoughtIntervalRef.current);
+        thoughtIntervalRef.current = null;
+        setLoadingStage("typing");
+        setAiThoughts([]);
+        generateBotResponse(msgText, historyForApi, runId);
+      }
+    }, 1200);
+  };
+
+  const stopAiResponse = () => {
+    if (!aiBusy) return;
+    trackEvent(userid, "ai_response_stopped", "mentor_chat", {
+      loadingStage,
+      isTyping,
+      isStreaming,
+    });
+
+    stopRequestedRef.current = true;
+    responseRunIdRef.current += 1;
+
+    if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
+    if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    thoughtIntervalRef.current = null;
+    streamIntervalRef.current = null;
+
+    responseAbortControllerRef.current?.abort();
+    responseAbortControllerRef.current = null;
+    stopVoiceOutput();
+
+    setIsTyping(false);
+    setIsStreaming(false);
+    setLoadingStage(null);
+    setAiThoughts([]);
+    setMessages((prev) =>
+      prev.filter((m) => !(m.from === "bot" && !m.text.trim())),
+    );
+  };
+
+  const generateBotResponse = async (
+    userText: string,
+    conversationHistory: { from: "bot" | "user"; text: string }[],
+    runId: number,
+  ) => {
+    const responseStartedAt = Date.now();
+    try {
+      setIsTyping(true);
+      setLoadingStage("typing");
+      const abortController = new AbortController();
+      responseAbortControllerRef.current = abortController;
+
+      const fullText = await sendAiMentorMessage({
+        userId: userid || "demo_user",
+        message: userText,
+        history: conversationHistory,
+        responseLanguage,
+        signal: abortController.signal,
+      });
+      responseAbortControllerRef.current = null;
+      trackEvent(userid, "ai_response_received", "mentor_chat", {
+        prompt: userText,
+        response: fullText,
+        responseLength: fullText.length,
+        durationMs: Date.now() - responseStartedAt,
+        responseLanguage,
+      });
+
+      if (stopRequestedRef.current || responseRunIdRef.current !== runId)
+        return;
+
+      const botMsgId = Math.random().toString();
+      const newBotMsg: Message = {
+        id: botMsgId,
+        from: "bot",
+        text: "",
+        timestamp: new Date(),
+      };
+
+      setIsStreaming(true);
+      setMessages((prev) => [...prev, newBotMsg]);
+
+      let currentText = "";
+      let index = 0;
+      const words = fullText.split(" ");
+
+      streamIntervalRef.current = setInterval(() => {
+        if (stopRequestedRef.current || responseRunIdRef.current !== runId) {
+          if (streamIntervalRef.current)
+            clearInterval(streamIntervalRef.current);
+          streamIntervalRef.current = null;
+          return;
+        }
+
+        if (index < words.length) {
+          currentText += (index === 0 ? "" : " ") + words[index];
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMsgId ? { ...m, text: currentText } : m,
+            ),
+          );
+          index++;
+        } else {
+          if (streamIntervalRef.current)
+            clearInterval(streamIntervalRef.current);
+          streamIntervalRef.current = null;
+          setIsStreaming(false);
+          setIsTyping(false);
+          setLoadingStage(null);
+          setAiThoughts([]);
+          trackEvent(userid, "ai_response_rendered", "mentor_chat", {
+            responseLength: fullText.length,
+            wordCount: words.length,
+            durationMs: Date.now() - responseStartedAt,
+          });
+          void speakText(fullText, botMsgId, true);
+        }
+      }, 25);
+    } catch (error: any) {
+      if (stopRequestedRef.current || responseRunIdRef.current !== runId)
+        return;
+
+      console.error("AI Mentor Chat Error:", error);
+      trackEvent(userid, "ai_response_failed", "mentor_chat", {
+        prompt: userText,
+        error: error?.message || "unknown",
+        durationMs: Date.now() - responseStartedAt,
+      });
+      setIsTyping(false);
+      setLoadingStage(null);
+      setAiThoughts([]);
+      setIsStreaming(false);
+      setMessages((prev) => [
+        ...prev.filter((m) => m.text !== ""),
+        {
+          id: Math.random().toString(),
+          from: "bot",
+          text: `Error: ${error.message || "Could not reach Meera AI."}`,
+          timestamp: new Date(),
+        },
+      ]);
+    }
+  };
+
+  const handlePayment = async () => {
+    trackEvent(userid, "ai_payment_initiated", "mentor_chat", {
+      price: 20,
+      currency: "INR",
+      source: "paywall",
+    });
+
+    const options = {
+      key: "rzp_test_SgUQKnFFQEK0Xh",
+      amount: "2000",
+      currency: "INR",
+      name: "ExamDost Smart Analysis",
+      description: "Unlock Unlimited Meera AI",
+      image:
+        "https://cdn.testbook.com/1755173671769-testbook-logo.png/1755173673.png",
+      handler: function (response: any) {
+        setShowPaywall(false);
+        setMessageCount(0);
+
+        const stored = localStorage.getItem("currentUserData");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.isPro = true;
+          parsed.user = parsed.user || {};
+          parsed.user.userid = userid;
+          localStorage.setItem("currentUserData", JSON.stringify(parsed));
+          setIsPro(true);
+        } else {
+          localStorage.setItem(
+            "currentUserData",
+            JSON.stringify({ isPro: true, user: { userid } }),
+          );
+          setIsPro(true);
+        }
+
+        trackEvent(userid, "payment_success", "mentor_chat", {
+          amount: 20,
+          currency: "INR",
+          razorpayPaymentId: response?.razorpay_payment_id || "",
+          razorpayOrderId: response?.razorpay_order_id || "",
+          razorpaySignaturePresent: !!response?.razorpay_signature,
+        });
+        navigate({ to: "/payment-success", search: { userid } });
+      },
+      modal: {
+        ondismiss: function () {
+          trackEvent(userid, "payment_dismissed", "mentor_chat", {
+            amount: 20,
+            currency: "INR",
+          });
+        },
+      },
+      prefill: {
+        name: "Test Aspirant",
+        email: "aspirant@testbook.com",
+        contact: "9999999999",
+      },
+      theme: {
+        color: "#6366f1",
+      },
+    };
+
+    try {
+      const checkout = await openRazorpayCheckout(options);
+      checkout?.on?.("payment.failed", function (response: any) {
+        trackEvent(userid, "payment_failed", "mentor_chat", {
+          amount: 20,
+          currency: "INR",
+          code: response?.error?.code || "",
+          description: response?.error?.description || "",
+          reason: response?.error?.reason || "",
+          step: response?.error?.step || "",
+        });
+      });
+      trackEvent(userid, "payment_checkout_opened", "mentor_chat", {
+        amount: 20,
+        currency: "INR",
+      });
+    } catch (error: any) {
+      trackEvent(userid, "payment_checkout_failed_to_open", "mentor_chat", {
+        error: error?.message || "unknown",
+      });
+      alert(error.message || "Razorpay SDK failed to load. Are you online?");
+    }
+  };
+
+  const renderMessageText = (text: string) => {
+    // Strip markdown links from display — they are rendered as CTA buttons below
+    const stripped = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "");
+
+    const renderInlineMarkdown = (value: string, keyPrefix: string) => {
+      const parts = value.split(/(`[^`]+`|\*\*.*?\*\*)/g);
+
+      return parts.map((part, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return (
+            <strong key={key} className="font-black">
+              {part.slice(2, -2)}
+            </strong>
+          );
+        }
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return (
+            <code
+              key={key}
+              className="rounded bg-slate-100 px-1 py-0.5 text-[0.92em] font-bold text-[#1d4ed8]"
+            >
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        return <span key={key}>{part}</span>;
+      });
+    };
+
+    const normalizeTableRow = (line: string) =>
+      line
+        .trim()
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split("|")
+        .map((cell) => cell.trim());
+
+    const isTableSeparator = (line: string) =>
+      /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+
+    const isTableStart = (lines: string[], index: number) =>
+      lines[index]?.includes("|") && isTableSeparator(lines[index + 1] || "");
+
+    const lines = stripped.split(/\r?\n/);
+    const blocks: JSX.Element[] = [];
+    let index = 0;
+
+    while (index < lines.length) {
+      const line = lines[index];
+
+      if (!line.trim()) {
+        index += 1;
+        continue;
+      }
+
+      if (isTableStart(lines, index)) {
+        const header = normalizeTableRow(lines[index]);
+        index += 2;
+
+        const rows: string[][] = [];
+        while (
+          index < lines.length &&
+          lines[index].includes("|") &&
+          lines[index].trim()
+        ) {
+          rows.push(normalizeTableRow(lines[index]));
+          index += 1;
+        }
+
+        blocks.push(
+          <div
+            key={`table-${index}`}
+            className="my-2 max-w-full overflow-x-auto rounded-xl border border-blue-100 bg-white shadow-sm"
+          >
+            <table className="min-w-full border-collapse text-left text-[12px] leading-normal">
+              <thead className="bg-blue-50/80 text-[#1d4ed8]">
+                <tr>
+                  {header.map((cell, cellIndex) => (
+                    <th
+                      key={cellIndex}
+                      className="whitespace-nowrap border-b border-blue-100 px-3 py-2 font-black"
+                    >
+                      {renderInlineMarkdown(cell, `th-${index}-${cellIndex}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, rowIndex) => (
+                  <tr
+                    key={rowIndex}
+                    className="odd:bg-white even:bg-slate-50/80"
+                  >
+                    {header.map((_, cellIndex) => (
+                      <td
+                        key={cellIndex}
+                        className="border-b border-slate-100 px-3 py-2 align-top text-[#25324a] last:border-b-0"
+                      >
+                        {renderInlineMarkdown(
+                          row[cellIndex] || "",
+                          `td-${index}-${rowIndex}-${cellIndex}`,
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        );
+        continue;
+      }
+
+      const bulletMatch = line.match(/^\s*[-*]\s+(.+)$/);
+      if (bulletMatch) {
+        const items: string[] = [];
+        while (index < lines.length) {
+          const match = lines[index].match(/^\s*[-*]\s+(.+)$/);
+          if (!match) break;
+          items.push(match[1]);
+          index += 1;
+        }
+        blocks.push(
+          <ul key={`ul-${index}`} className="my-1.5 list-disc space-y-1 pl-5">
+            {items.map((item, itemIndex) => (
+              <li key={itemIndex}>
+                {renderInlineMarkdown(item, `li-${index}-${itemIndex}`)}
+              </li>
+            ))}
+          </ul>,
+        );
+        continue;
+      }
+
+      const numberedMatch = line.match(/^\s*\d+[.)]\s+(.+)$/);
+      if (numberedMatch) {
+        const items: string[] = [];
+        while (index < lines.length) {
+          const match = lines[index].match(/^\s*\d+[.)]\s+(.+)$/);
+          if (!match) break;
+          items.push(match[1]);
+          index += 1;
+        }
+        blocks.push(
+          <ol
+            key={`ol-${index}`}
+            className="my-1.5 list-decimal space-y-1 pl-5"
+          >
+            {items.map((item, itemIndex) => (
+              <li key={itemIndex}>
+                {renderInlineMarkdown(item, `oli-${index}-${itemIndex}`)}
+              </li>
+            ))}
+          </ol>,
+        );
+        continue;
+      }
+
+      const paragraphLines: string[] = [];
+      while (
+        index < lines.length &&
+        lines[index].trim() &&
+        !isTableStart(lines, index) &&
+        !/^\s*[-*]\s+/.test(lines[index]) &&
+        !/^\s*\d+[.)]\s+/.test(lines[index])
+      ) {
+        paragraphLines.push(lines[index].trim());
+        index += 1;
+      }
+
+      blocks.push(
+        <p key={`p-${index}`} className="my-1.5 first:mt-0 last:mb-0">
+          {renderInlineMarkdown(paragraphLines.join(" "), `p-${index}`)}
+        </p>,
+      );
+    }
+
+    return blocks;
+  };
+
+  const handleDownloadPDF = () => {
+    try {
+      trackEvent(userid, "ai_pdf_download_started", "mentor_chat");
+      const doc = new jsPDF();
+      const name = userData?.user?.name || "Aspirant";
+      const analysis = userData?.latestAnalysis;
+
+      // Styling
+      doc.setFillColor(0, 185, 107); // Testbook Green
+      doc.rect(0, 0, 210, 40, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.text("ExamDost AI Performance Report", 20, 25);
+
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(14);
+      doc.text(`Student Name: ${name}`, 20, 50);
+      doc.text(`Report Generated: ${new Date().toLocaleString()}`, 20, 58);
+
+      doc.line(20, 65, 190, 65);
+
+      doc.setFontSize(18);
+      doc.text("LATEST MOCK PERFORMANCE", 20, 78);
+
+      doc.setFontSize(12);
+      doc.text(`Mock Test: ${analysis?.testName || "Latest Attempt"}`, 25, 88);
+      doc.text(`Score: ${analysis?.score} / ${analysis?.totalMarks}`, 25, 95);
+      doc.text(`Accuracy: ${analysis?.accuracy}%`, 25, 102);
+      doc.text(
+        `Rank: ${analysis?.rank} of ${analysis?.totalStudents} students`,
+        25,
+        109,
+      );
+
+      doc.setFontSize(18);
+      doc.text("WEAK TOPICS & IMPROVEMENT PLAN", 20, 125);
+
+      let y = 135;
+      const topics = analysis?.weakTopics || [];
+      if (topics.length > 0) {
+        topics.forEach((topic: any, i: number) => {
+          doc.setFontSize(13);
+          doc.text(`${i + 1}. ${topic.topic || topic.name}`, 25, y);
+          doc.setFontSize(11);
+          doc.setTextColor(100, 100, 100);
+          doc.text(
+            `Current Accuracy: ${topic.accuracy || topic.score}%`,
+            30,
+            y + 6,
+          );
+          doc.setTextColor(0, 0, 0);
+          y += 18;
+        });
+      } else {
+        doc.text(
+          "Complete more mock tests for a detailed topic breakdown.",
+          25,
+          135,
+        );
+      }
+
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text(
+        "This report was generated by ExamDost Meera AI - Powered by Testbook.",
+        20,
+        280,
+      );
+
+      doc.save(`ExamDost_Report_${name.split(" ")[0]}.pdf`);
+      trackEvent(userid, "ai_pdf_downloaded", "mentor_chat", {
+        studentName: name,
+        testName: analysis?.testName || "",
+      });
+    } catch (err) {
+      console.error("PDF Generation failed:", err);
+      trackEvent(userid, "ai_pdf_download_failed", "mentor_chat", {
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      alert("Could not generate PDF. Please try again.");
+    }
+  };
+
+  const parseCTAs = (responseText: string) => {
+    // 1. Detect Markdown links: [Label](url)
+    const mdLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+    const ctas: {
+      label: string;
+      action: string;
+      type: "link" | "pdf" | "internal";
+    }[] = [];
+    let match;
+
+    while ((match = mdLinkRegex.exec(responseText)) !== null) {
+      ctas.push({ label: match[1], action: match[2], type: "link" });
+    }
+
+    // 2. Detect bracketed buttons: [Button Name]
+    const buttonRegex = /\[([^\]]+)\]/g;
+    while ((match = buttonRegex.exec(responseText)) !== null) {
+      const label = match[1];
+
+      // Skip if it was already matched as part of a markdown link
+      if (responseText.includes(`](${label}`)) continue;
+      if (ctas.find((c) => c.label === label)) continue;
+
+      if (
+        label.toLowerCase().includes("pdf") ||
+        label.toLowerCase().includes("download report")
+      ) {
+        ctas.push({ label, action: "pdf_download", type: "pdf" });
+      } else if (
+        label.toLowerCase().includes("mock") ||
+        label.toLowerCase().includes("practice")
+      ) {
+        ctas.push({ label, action: `/?userid=${userid}`, type: "internal" });
+      } else {
+        ctas.push({
+          label,
+          action: `https://testbook.com/search?q=${encodeURIComponent(label)}`,
+          type: "link",
+        });
+      }
+    }
+    return ctas;
+  };
+
+  return (
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[linear-gradient(180deg,#f7fbff_0%,#f2f6ff_45%,#f7f9fc_100%)] font-sans antialiased">
+      <header className="relative z-10 shrink-0 border-b border-blue-100/70 bg-white/88 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2.5 shadow-[0_8px_28px_-24px_rgba(37,99,235,0.55)] backdrop-blur-xl">
+        <div className="mx-auto flex min-h-[2.5rem] w-full max-w-2xl items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5 rounded-full border border-blue-100/80 bg-gradient-to-r from-white to-blue-50/70 px-2.5 py-1.5 shadow-sm">
+            <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-blue-200/80 bg-blue-50 shadow-[0_6px_16px_-10px_rgba(37,99,235,0.75)]">
+              <img
+                src={MEERA_CHAT_AVATAR_URL}
+                alt="Meera"
+                className="h-full w-full scale-125 object-cover object-top"
+              />
+            </div>
+            <div className="flex min-w-0 flex-col justify-center text-left">
+              <h1 className="leading-none text-[14.5px] font-black tracking-tight text-[#132247]">
+                Meera
+              </h1>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.65)]" />
+                <span className="truncate text-[10px] font-bold leading-none text-[#62708d]">
+                  {UI_TRANSLATIONS[responseLanguage]?.assistant_subtitle ||
+                    "Smart AI Assistant"}
+                </span>
+              </div>
+            </div>
+            {isPro && (
+              <span className="ml-1 flex items-center rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-white shadow-sm ring-1 ring-white/10">
+                {UI_TRANSLATIONS[responseLanguage]?.pro_member || "PRO"}
+              </span>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5">
+            <label className="relative flex h-8 items-center gap-1.5 rounded-full border border-blue-200/80 bg-gradient-to-r from-white to-blue-50 px-2 text-[11px] font-black text-[#2563eb] shadow-sm">
+              <Languages className="h-3.5 w-3.5 shrink-0" />
+              <span className="sr-only">Response language</span>
+              <select
+                value={responseLanguage}
+                onChange={(e) => {
+                  const nextLanguage = e.target.value as LanguageCode;
+                  trackEvent(
+                    userid,
+                    "response_language_changed",
+                    "mentor_chat",
+                    {
+                      from: responseLanguage,
+                      to: nextLanguage,
+                    },
+                  );
+                  setResponseLanguage(nextLanguage);
+                }}
+                title="Response language"
+                className="w-[2.85rem] appearance-none bg-transparent pr-2 text-[11px] font-black uppercase text-[#2563eb] outline-none"
+              >
+                {LANGUAGE_OPTIONS.map((language) => (
+                  <option key={language.value} value={language.value}>
+                    {language.shortLabel}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] leading-none text-[#2563eb]/70">
+                v
+              </span>
+            </label>
+          </div>
+        </div>
+      </header>
+
+      {/* ══════════════════════════════
+          MESSAGES — slate bg
+      ══════════════════════════════ */}
+      <section className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_12%_8%,rgba(37,99,235,0.055),transparent_34%),radial-gradient(circle_at_92%_32%,rgba(20,184,166,0.06),transparent_30%)] px-4 py-5 [scrollbar-width:none] touch-pan-y [&::-webkit-scrollbar]:hidden">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 pb-2">
+          {messages
+            .filter((msg) => msg.from === "user" || msg.text.trim() !== "")
+            .map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex items-end gap-2.5 ${msg.from === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {/* Bot avatar */}
+                {msg.from === "bot" && (
+                  <div className="mb-0.5 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-blue-200/80 bg-blue-50 shadow-sm">
+                    <img
+                      src={MEERA_CHAT_AVATAR_URL}
+                      alt="Meera"
+                      className="h-full w-full scale-125 object-cover object-top"
+                    />
+                  </div>
+                )}
+
+                <div
+                  className={`flex min-w-0 max-w-[82%] flex-col ${msg.from === "user" ? "items-end" : "items-start"}`}
+                >
+                  {/* Bubble */}
+                  <div
+                    className={`max-w-full overflow-hidden break-words text-[14px] leading-[1.7] [overflow-wrap:anywhere] ${
+                      msg.from === "user"
+                        ? "bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-white px-4 py-3 rounded-2xl rounded-br-sm shadow-[0_12px_28px_-18px_rgba(37,99,235,0.75)]"
+                        : "bg-white/95 text-[#18243d] px-4 py-3 rounded-2xl rounded-bl-sm shadow-[0_10px_30px_-24px_rgba(15,23,42,0.7)] border border-blue-100/70"
+                    }`}
+                  >
+                    <div className="break-words font-[450] [overflow-wrap:anywhere]">
+                      {renderMessageText(msg.text)}
+                    </div>
+
+                    {msg.from === "bot" && parseCTAs(msg.text).length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-blue-100 pt-3">
+                        {parseCTAs(msg.text).map((cta, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              trackEvent(
+                                userid,
+                                "ai_cta_clicked",
+                                "mentor_chat",
+                                {
+                                  type: cta.type,
+                                  label: cta.label,
+                                  action: cta.action,
+                                },
+                              );
+                              if (cta.type === "pdf") handleDownloadPDF();
+                              else if (cta.type === "internal") {
+                                trackEvent(
+                                  userid,
+                                  "internal_navigation_clicked",
+                                  "mentor_chat",
+                                  { to: cta.action },
+                                );
+                                navigate({
+                                  to: cta.action as any,
+                                  search: { userid } as any,
+                                });
+                              } else {
+                                trackEvent(
+                                  userid,
+                                  "external_link_opened",
+                                  "mentor_chat",
+                                  { url: cta.action, label: cta.label },
+                                );
+                                window.open(cta.action, "_blank");
+                              }
+                            }}
+                            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition-all active:scale-95 ${
+                              cta.type === "pdf"
+                                ? "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                : "border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                            }`}
+                          >
+                            {cta.type === "pdf" && (
+                              <Download className="h-3 w-3" />
+                            )}
+                            {cta.label}
+                            {cta.type !== "pdf" && (
+                              <ArrowRight className="h-3 w-3" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Timestamp + speak */}
+                  <div className="flex items-center gap-2 mt-1 px-0.5">
+                    <span className="text-[10px] tabular-nums text-slate-400">
+                      {msg.timestamp.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {msg.from === "bot" && (
+                      <button
+                        onClick={() => void speakText(msg.text, msg.id)}
+                        className={`flex items-center gap-1 text-[10px] font-semibold transition-colors ${speakingId === msg.id ? "animate-pulse text-[#2563eb]" : "text-slate-400 hover:text-slate-600"}`}
+                      >
+                        {speakingId === msg.id ? (
+                          <VolumeX className="h-3 w-3" />
+                        ) : (
+                          <Volume2 className="h-3 w-3" />
+                        )}
+                        {speakingId === msg.id ? "Stop" : "Listen"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+          {/* Typing indicator */}
+          {isTyping && !isStreaming && (
+            <div className="flex items-end gap-2.5 justify-start animate-in fade-in duration-200">
+              <div className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-blue-200/80 bg-blue-50 shadow-sm">
+                <img
+                  src={MEERA_CHAT_AVATAR_URL}
+                  alt="Meera"
+                  className="h-full w-full scale-125 object-cover object-top"
+                />
+              </div>
+              <div className="flex items-center gap-2 rounded-2xl rounded-bl-sm border border-blue-100/80 bg-white/95 px-4 py-3 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.7)]">
+                <span className="whitespace-nowrap text-xs font-semibold text-[#62708d]">
+                  {loadingStage === "typing"
+                    ? UI_TRANSLATIONS[responseLanguage]?.typing
+                    : UI_TRANSLATIONS[responseLanguage]?.thinking}
+                </span>
+                <div className="flex items-center gap-1">
+                  <div className="h-1.5 w-1.5 rounded-full bg-[#2563eb]/70 animate-bounce [animation-delay:-0.3s]" />
+                  <div className="h-1.5 w-1.5 rounded-full bg-[#2563eb]/70 animate-bounce [animation-delay:-0.15s]" />
+                  <div className="h-1.5 w-1.5 rounded-full bg-[#2563eb]/70 animate-bounce" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} className="h-1" />
+        </div>
+      </section>
+
+      {/* ══════════════════════════════
+          INPUT — white
+      ══════════════════════════════ */}
+      <div className="shrink-0 border-t border-blue-100/80 bg-white/92 px-3 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.6rem)] shadow-[0_-12px_34px_-30px_rgba(37,99,235,0.6)] backdrop-blur-xl">
+        <div className="mx-auto w-full max-w-2xl">
+          {/* Suggestion chips */}
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-nowrap">
+            {activeSuggestions.map((s) => (
+              <button
+                key={s}
+                onClick={() => handleSend(s)}
+                disabled={aiBusy}
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-blue-100 bg-gradient-to-r from-white to-blue-50/70 px-3 py-1.5 text-[11px] font-semibold text-[#61708b] shadow-sm transition-all hover:border-blue-200 hover:text-[#1d4ed8] disabled:opacity-30"
+              >
+                <Lightbulb className="h-3 w-3 text-amber-500 shrink-0" />
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {/* Input row */}
+          <div
+            className={`flex items-center gap-2 rounded-2xl border px-2 py-2 shadow-inner transition-all duration-200 ${
+              isListening
+                ? "border-red-200 bg-red-50"
+                : "border-blue-100 bg-[#f8fbff] focus-within:border-blue-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100"
+            }`}
+          >
+            {/* Mic */}
+            <button
+              onClick={() => {
+                if (!isPro && messageCount >= 3) {
+                  trackEvent(userid, "paywall_shown", "mentor_chat", {
+                    reason: "voice_after_free_limit",
+                    messageCount,
+                  });
+                  setShowPaywall(true);
+                  return;
+                }
+                toggleListening();
+              }}
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all ${
+                isListening
+                  ? "animate-pulse bg-red-500 text-white shadow-md shadow-red-500/20"
+                  : "border border-blue-100 bg-white text-[#64748b] shadow-sm hover:bg-blue-50 hover:text-[#2563eb]"
+              }`}
+            >
+              <Mic className="h-4 w-4" />
+            </button>
+
+            {/* Text / waveform */}
+            {isListening ? (
+              <div className="flex-1 flex items-center gap-1 h-9 px-1">
+                {[...Array(5)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-1 bg-red-400 rounded-full animate-bounce"
+                    style={{
+                      height: `${30 + i * 12}%`,
+                      animationDelay: `${i * 0.12}s`,
+                    }}
+                  />
+                ))}
+                <span className="ml-2 text-xs font-semibold text-red-500 animate-pulse">
+                  {UI_TRANSLATIONS[responseLanguage]?.listening ||
+                    "Listening..."}
+                </span>
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => {
+                  if (!isPro && messageCount >= 3) {
+                    trackEvent(userid, "paywall_shown", "mentor_chat", {
+                      reason: "typing_after_free_limit",
+                      messageCount,
+                    });
+                    setShowPaywall(true);
+                    return;
+                  }
+                  setInput(e.target.value);
+                }}
+                onClick={() => {
+                  if (!isPro && messageCount >= 3) {
+                    trackEvent(userid, "paywall_shown", "mentor_chat", {
+                      reason: "input_focus_after_free_limit",
+                      messageCount,
+                    });
+                    setShowPaywall(true);
+                  }
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                disabled={isTyping || isStreaming}
+                placeholder={
+                  UI_TRANSLATIONS[responseLanguage]?.input_placeholder ||
+                  "Message Meera AI…"
+                }
+                className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-[14px] font-semibold text-[#17233d] placeholder:text-slate-400 focus:outline-none disabled:opacity-50"
+              />
+            )}
+
+            {/* Send */}
+            {!isListening && (
+              <button
+                onClick={() => (aiBusy ? stopAiResponse() : handleSend())}
+                disabled={!aiBusy && !input.trim()}
+                aria-label={aiBusy ? "Stop Meera response" : "Send message"}
+                className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all active:scale-90 ${
+                  aiBusy
+                    ? "border border-blue-100 bg-white text-[#2563eb] shadow-sm shadow-blue-200/40"
+                    : "bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-white shadow-md shadow-blue-600/20 disabled:bg-none disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                }`}
+              >
+                {aiBusy ? (
+                  <span className="relative grid h-4 w-4 place-items-center">
+                    <span className="absolute h-4 w-4 animate-ping rounded-md bg-[#2563eb]/20" />
+                    <span className="relative h-2.5 w-2.5 rounded-[3px] bg-[#2563eb]" />
+                  </span>
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Free counter */}
+          {!isPro && messageCount > 0 && (
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <div className="flex gap-1">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className={`h-1 w-5 rounded-full transition-colors ${i < messageCount ? "bg-gradient-to-r from-[#2563eb] to-[#4f46e5]" : "bg-slate-200"}`}
+                  />
+                ))}
+              </div>
+              <span className="text-[10px] font-medium text-slate-500">
+                {messageCount}/3 free messages
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── PAYWALL MODAL ── */}
+      {showPaywall && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#111f45]/55 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md max-h-[92vh] overflow-hidden rounded-3xl bg-white shadow-2xl shadow-[#111f45]/25 animate-in zoom-in-95 duration-300">
+            {/* Modal header gradient */}
+            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#f5f9ff_0%,#e9f2ff_52%,#eef0ff_100%)] px-6 pt-5 pb-7 text-center text-[#111f45]">
+              <div className="absolute inset-0 pointer-events-none text-[#243b80] opacity-[0.05]">
+                <MessageSquare className="absolute left-5 top-7 h-16 w-16 rotate-[-15deg]" />
+                <GraduationCap className="absolute right-4 top-8 h-20 w-20 rotate-[14deg]" />
+              </div>
+              {!isPro && messageCount >= 3 ? null : (
+                <button
+                  onClick={() => {
+                    trackEvent(userid, "paywall_closed", "mentor_chat", {
+                      method: "x_button",
+                    });
+                    setShowPaywall(false);
+                  }}
+                  className="absolute top-4 right-4 z-10 p-1.5 rounded-full bg-white/80 text-[#53617c] shadow-sm hover:bg-white transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+              <div className="paywall-avatar-float relative z-10 mx-auto mb-5 grid h-40 w-40 place-items-center overflow-hidden rounded-full border-[6px] border-white bg-white shadow-2xl shadow-blue-900/30 sm:h-44 sm:w-44">
+                <img
+                  src={MEERA_PAYWALL_AVATAR_URL}
+                  alt="Meera"
+                  className="h-full w-full object-cover object-top scale-110"
+                />
+              </div>
+              <h3 className="relative z-10 text-2xl font-black tracking-tight bg-gradient-to-br from-[#111f45] via-[#2563eb] to-[#4f46e5] bg-clip-text text-transparent drop-shadow-sm">
+                {UI_TRANSLATIONS[responseLanguage]?.unlock_pro ||
+                  "Unlock Pro Access"}
+              </h3>
+            </div>
+
+            <div className="px-5 py-5">
+              <div className="space-y-2 mb-5">
+                {(
+                  UI_TRANSLATIONS[responseLanguage]?.features || [
+                    "Unlimited AI Questions & Strategy",
+                    "Daily Customized Action Plans",
+                    "Unlock All Topic Tests & Analytics",
+                  ]
+                ).map((item: string) => (
+                  <div
+                    key={item}
+                    className="flex items-center gap-3 rounded-xl border border-[#dbe8ff] bg-[#f5f9ff] p-3"
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-[#14b8a6] shrink-0" />
+                    <span className="font-bold text-sm text-[#22304d]">
+                      {item}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-[#7aa7ff]/30 bg-[#eef0ff]/80 px-3.5 py-2 mb-3">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-wider text-[#2563eb] mb-0">
+                    {UI_TRANSLATIONS[responseLanguage]?.pro_member || "PRO"}
+                  </p>
+                  <p className="text-xl font-black text-slate-900">
+                    ₹20{" "}
+                    <span className="text-[10px] font-bold text-slate-400">
+                      one-time
+                    </span>
+                  </p>
+                </div>
+                <span className="bg-[#14b8a6] text-white text-[9px] font-black px-2 py-0.5 rounded-lg uppercase">
+                  Save 90%
+                </span>
+              </div>
+
+              <button
+                onClick={handlePayment}
+                className="cta-shine w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] text-white font-black shadow-xl shadow-blue-700/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base [&_*]:text-white"
+              >
+                {UI_TRANSLATIONS[responseLanguage]?.pay_unlock ||
+                  "Pay ₹20 & Unlock"}{" "}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  trackEvent(
+                    userid,
+                    "paywall_maybe_later_clicked",
+                    "mentor_chat",
+                    { messageCount },
+                  );
+                  setShowCancelPopup(true);
+                }}
+                className="w-full text-center text-xs font-bold text-slate-400 hover:text-slate-600 mt-2 py-1 transition-colors"
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EXIT-INTENT POPUP ── */}
+      {showCancelPopup && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#111f45]/55 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl shadow-[#111f45]/25 animate-in zoom-in-95 duration-200">
+            <button
+              onClick={() => {
+                trackEvent(userid, "exit_popup_closed", "mentor_chat", {
+                  method: "x_button",
+                });
+                setShowCancelPopup(false);
+              }}
+              className="absolute top-4 right-4 z-10 p-1.5 rounded-full bg-white/80 text-[#53617c] shadow-sm hover:bg-white transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="relative overflow-hidden bg-[linear-gradient(180deg,#f5f9ff_0%,#e9f2ff_52%,#eef0ff_100%)] px-6 pb-6 pt-5 text-center">
+              <div className="absolute inset-0 pointer-events-none text-[#243b80] opacity-[0.05]">
+                <MessageSquare className="absolute left-5 top-7 h-16 w-16 rotate-[-15deg]" />
+                <GraduationCap className="absolute right-4 top-8 h-20 w-20 rotate-[14deg]" />
+              </div>
+              <div className="paywall-avatar-float relative z-10 mx-auto mb-3 grid h-32 w-32 place-items-center overflow-hidden rounded-full border border-[#7aa7ff]/30 bg-white shadow-xl shadow-blue-900/10">
+                <img
+                  src={MEERA_EXIT_AVATAR_URL}
+                  alt="Meera"
+                  className="absolute inset-0 h-full w-full object-cover object-top"
+                />
+                <span className="text-2xl">😟</span>
+              </div>
+              <h3 className="relative z-10 text-2xl font-black tracking-tight text-[#111f45] drop-shadow-sm">
+                You're Missing Out!
+              </h3>
+              <p className="relative z-10 mx-auto mt-3 flex w-fit max-w-[17rem] items-center justify-center rounded-full border border-[#7aa7ff]/45 bg-white px-4 py-1.5 text-center text-xs font-black text-[#2563eb] shadow-sm shadow-blue-900/5">
+                Cancel and you lose access to:
+              </p>
+            </div>
+            <div className="space-y-2 px-5 py-5">
+              {[
+                { e: "🤖", t: "Unlimited AI Chats" },
+                { e: "📅", t: "Daily Personalized Action Plans" },
+                { e: "🎯", t: "Weak Topic Drill Recommendations" },
+                { e: "💡", t: "24/7 AI Doubt Solving" },
+              ].map(({ t }, index) => {
+                const icons = [MessageSquare, BookOpen, Target, Lightbulb];
+                const Icon = icons[index] || MessageSquare;
+                return (
+                  <div
+                    key={t}
+                    className="flex items-center gap-3 rounded-xl border border-[#dbe8ff] bg-[#f5f9ff] p-3"
+                  >
+                    <Icon className="h-4 w-4 shrink-0 text-[#14b8a6]" />
+                    <span className="text-xs font-bold text-[#22304d]">
+                      {t}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-5 pb-2">
+              <button
+                onClick={() => {
+                  trackEvent(
+                    userid,
+                    "exit_popup_keep_access_clicked",
+                    "mentor_chat",
+                  );
+                  setShowCancelPopup(false);
+                }}
+                className="cta-shine flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] py-3 text-sm font-black text-white shadow-xl shadow-blue-700/25 transition-all active:scale-[0.98] [&_*]:text-white"
+              >
+                Keep My Access →
+              </button>
+            </div>
+            <button
+              onClick={() => {
+                trackEvent(
+                  userid,
+                  "exit_popup_no_thanks_clicked",
+                  "mentor_chat",
+                );
+                setShowCancelPopup(false);
+                setShowPaywall(false);
+              }}
+              className="mx-auto mb-5 block w-fit px-4 text-center text-xs font-bold text-slate-400 hover:text-slate-600 py-1.5 transition-colors"
+            >
+              No thanks, I'll miss out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Metric({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Target;
+  label: string;
+  value: string;
+}) {
+  const isPercentage = value.includes("%");
+  const numValue = isPercentage ? parseInt(value) : 0;
+
+  return (
+    <div className="rounded-2xl bg-white p-4 border border-slate-200/80 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] relative overflow-hidden group hover:border-primary/40 hover:shadow-md transition-all duration-300">
+      <div className="flex items-center justify-between relative z-10">
+        <div className="flex items-center gap-3.5">
+          <div className="h-10 w-10 rounded-xl bg-slate-50 grid place-items-center border border-slate-100 group-hover:bg-primary/5 group-hover:text-primary transition-colors">
+            <Icon className="h-5 w-5 text-slate-400 group-hover:text-primary transition-colors" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+              {label}
+            </span>
+            <span className="text-[19px] font-black text-slate-800 leading-none tracking-tight">
+              {value}
+            </span>
+          </div>
+        </div>
+
+        {isPercentage && (
+          <div className="h-10 w-10 relative flex items-center justify-center">
+            <svg
+              className="w-full h-full transform -rotate-90"
+              viewBox="0 0 36 36"
+            >
+              <path
+                className="text-slate-100"
+                strokeWidth="3"
+                stroke="currentColor"
+                fill="none"
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              />
+              <path
+                className={`${numValue > 70 ? "text-emerald-500" : numValue > 40 ? "text-amber-500" : "text-red-500"}`}
+                strokeDasharray={`${numValue}, 100`}
+                strokeWidth="3"
+                strokeLinecap="round"
+                stroke="currentColor"
+                fill="none"
+                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              />
+            </svg>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
