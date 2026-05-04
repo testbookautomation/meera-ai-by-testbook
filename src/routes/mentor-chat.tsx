@@ -389,28 +389,31 @@ function IntroCard({
 
 function QuestionnaireModal({ onComplete }: { onComplete: (score: number) => void }) {
   const [step, setStep] = useState(0);
+  // answers stores selected option INDEX per question (not value), so keys are always unique
   const [answers, setAnswers] = useState<number[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [fading, setFading] = useState(false);
 
   const q = QUESTIONNAIRE[step];
   const isLast = step === QUESTIONNAIRE.length - 1;
 
   const next = () => {
-    if (selected === null || fading) return;
-    const next = [...answers, selected];
+    if (selectedIdx === null || fading) return;
+    const nextAnswers = [...answers, selectedIdx];
     if (!isLast) {
       setFading(true);
-      setTimeout(() => { setAnswers(next); setStep(s => s + 1); setSelected(null); setFading(false); }, 200);
+      setTimeout(() => { setAnswers(nextAnswers); setStep(s => s + 1); setSelectedIdx(null); setFading(false); }, 200);
     } else {
-      onComplete(next.reduce((a, b) => a + b, 0));
+      // Sum option values (not indices) for the final score
+      const score = nextAnswers.reduce((sum, idx, qi) => sum + QUESTIONNAIRE[qi].options[idx].value, 0);
+      onComplete(score);
     }
   };
 
   const back = () => {
     if (step === 0 || fading) return;
     setFading(true);
-    setTimeout(() => { setStep(s => s - 1); setSelected(answers[step - 1] ?? null); setAnswers(a => a.slice(0, -1)); setFading(false); }, 200);
+    setTimeout(() => { setStep(s => s - 1); setSelectedIdx(answers[step - 1] ?? null); setAnswers(a => a.slice(0, -1)); setFading(false); }, 200);
   };
 
   return (
@@ -433,10 +436,10 @@ function QuestionnaireModal({ onComplete }: { onComplete: (score: number) => voi
           <div className="mb-2 text-[36px] leading-none">{q.emoji}</div>
           <h3 className="mb-5 text-[18px] font-black leading-snug text-[#111f45]">{q.question}</h3>
           <div className="flex flex-col gap-2.5">
-            {q.options.map((opt) => {
-              const active = selected === opt.value;
+            {q.options.map((opt, i) => {
+              const active = selectedIdx === i;
               return (
-                <button key={opt.value} onClick={() => setSelected(opt.value)}
+                <button key={`${step}-${i}`} onClick={() => setSelectedIdx(i)}
                   className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all active:scale-[0.98] ${active ? "border-[#2563eb] bg-gradient-to-r from-[#2563eb] to-[#4f46e5] shadow-md" : "border-blue-100 bg-white/90 hover:border-[#2563eb]/40"}`}>
                   <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${active ? "border-white bg-white" : "border-slate-300"}`}>
                     {active && <div className="h-2 w-2 rounded-full bg-[#2563eb]" />}
@@ -453,8 +456,8 @@ function QuestionnaireModal({ onComplete }: { onComplete: (score: number) => voi
         </div>
 
         <div className="px-5 pt-1">
-          <button onClick={next} disabled={selected === null}
-            className={`flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[15px] font-black text-white shadow-lg transition-all active:scale-[0.98] ${selected !== null ? "bg-gradient-to-r from-[#2563eb] to-[#4f46e5] shadow-blue-700/20 hover:brightness-105" : "cursor-not-allowed bg-slate-200 shadow-none"}`}>
+          <button onClick={next} disabled={selectedIdx === null}
+            className={`flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[15px] font-black text-white shadow-lg transition-all active:scale-[0.98] ${selectedIdx !== null ? "bg-gradient-to-r from-[#2563eb] to-[#4f46e5] shadow-blue-700/20 hover:brightness-105" : "cursor-not-allowed bg-slate-200 shadow-none"}`}>
             {isLast ? "Reveal My Result" : "Next"} <ArrowRight className="h-4 w-4" />
           </button>
           {step > 0 && <button onClick={back} className="mt-2 w-full py-1.5 text-center text-[12px] font-semibold text-slate-400">← Back</button>}
