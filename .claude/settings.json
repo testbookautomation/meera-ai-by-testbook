@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(netstat -ano)",
+      "PowerShell(Get-Command ngrok -ErrorAction SilentlyContinue)",
+      "PowerShell(& ngrok version 2>&1)",
+      "Bash(ngrok http *)",
+      "Bash(curl -s http://localhost:4040/api/tunnels)",
+      "Bash(npx tsc *)",
+      "Bash(npx kill-port *)",
+      "Bash(node backend/server.cjs)",
+      "Bash(Get-ChildItem -Path \"c:\\\\xampp\\\\htdocs\\\\meera-ai-by-testbook\" -Recurse -Depth 2)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)"
+    ]
+  }
+}

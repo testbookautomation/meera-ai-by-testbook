@@ -429,12 +429,18 @@ async function callOpenAI({ systemPrompt, messages, maxTokens = 3600 }) {
   }
 
   const normalizedMessages = toOpenAiMessages(messages);
-  const first = await callOpenAIOnce({
-    apiKey,
-    systemPrompt,
-    messages: normalizedMessages,
-    maxTokens
-  });
+  let first;
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      first = await callOpenAIOnce({ apiKey, systemPrompt, messages: normalizedMessages, maxTokens });
+      break;
+    } catch (err) {
+      const retryable = err.statusCode === 503 || err.statusCode === 429 || err.statusCode === 502;
+      if (!retryable || attempt === maxRetries) throw err;
+      await new Promise(r => setTimeout(r, (attempt + 1) * 1500));
+    }
+  }
 
   let text = first.text;
   let usage = first.usage;
@@ -523,6 +529,10 @@ let cachedAdminToken = null;
 let cachedAdminTokenAt = 0;
 const ADMIN_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
 
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', ts: Date.now() });
+});
+
 app.get('/', (req, res, next) => {
   if (fs.existsSync(frontendClientPath) && fs.existsSync(frontendServerPath)) {
     return next();
@@ -539,6 +549,10 @@ const db = new sqlite3.Database(databasePath, (err) => {
   if (err) console.error('Error opening database', err.message);
   else {
     console.log('Connected to the SQLite database.');
+    db.run('PRAGMA journal_mode=WAL');
+    db.run('PRAGMA busy_timeout=5000');
+    db.run('PRAGMA cache_size=-16000');
+    db.run('PRAGMA synchronous=NORMAL');
     db.run(`CREATE TABLE IF NOT EXISTS users (
       userid TEXT PRIMARY KEY,
       name TEXT,
@@ -582,7 +596,13 @@ const db = new sqlite3.Database(databasePath, (err) => {
       db.run(`CREATE INDEX IF NOT EXISTS idx_events_user_time ON events (userId, serverTimestamp)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_events_name_time ON events (eventName, serverTimestamp)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_events_session ON events (sessionId)`);
+      // Purge events older than 30 days on startup
+      db.run(`DELETE FROM events WHERE serverTimestamp < datetime('now', '-30 days')`);
     });
+    // Daily event cleanup at midnight
+    setInterval(() => {
+      db.run(`DELETE FROM events WHERE serverTimestamp < datetime('now', '-30 days')`);
+    }, 24 * 60 * 60 * 1000);
 
     const analysisMetricColumns = [
       ['attemptedQuestions', 'INTEGER'],
@@ -1232,15 +1252,29 @@ function getGoogleTtsVoice(responseLanguage) {
   if (language === 'hindi') {
     return {
       languageCode: 'hi-IN',
+      name: 'hi-IN-Neural2-A',
       ssmlGender: 'FEMALE',
-      speakingRate: 0.96
+      speakingRate: 0.94,
+      pitch: 1.5
+    };
+  }
+
+  if (language === 'hinglish') {
+    return {
+      languageCode: 'en-IN',
+      name: 'en-IN-Neural2-A',
+      ssmlGender: 'FEMALE',
+      speakingRate: 0.96,
+      pitch: 1.5
     };
   }
 
   return {
     languageCode: 'en-IN',
+    name: 'en-IN-Neural2-A',
     ssmlGender: 'FEMALE',
-    speakingRate: language === 'hinglish' ? 0.98 : 1.02
+    speakingRate: 1.0,
+    pitch: 1.5
   };
 }
 
@@ -1269,12 +1303,13 @@ app.post('/api/tts', ttsLimiter, async (req, res) => {
         input: { text },
         voice: {
           languageCode: voice.languageCode,
+          name: voice.name,
           ssmlGender: voice.ssmlGender
         },
         audioConfig: {
           audioEncoding: 'MP3',
           speakingRate: voice.speakingRate,
-          pitch: 0
+          pitch: voice.pitch
         }
       })
     });
@@ -1615,6 +1650,59 @@ Format EXACTLY: "Fixing [Topic1] & [Topic2] can boost your score by +[N] marks."
     }
 
     return res.status(502).json({ success: false, error: "Live data unavailable. Please try again." });
+  }
+});
+
+// ── RECOMMENDED TESTS ENDPOINT ─────────────────────────────────────────────
+app.get('/api/recommended-tests/:userid', async (req, res) => {
+  let userid;
+  try {
+    userid = cleanUserId(req.params.userid);
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error.message });
+  }
+
+  try {
+    const adminToken = await adminLogin();
+    const tbUser = await searchUserByPhone(adminToken, userid);
+    if (!tbUser) return res.json({ success: true, data: [] });
+
+    const studentToken = await generateStudentToken(adminToken, tbUser._id);
+    const allTests = await getLastTests(studentToken);
+    if (!allTests || allTests.length === 0) return res.json({ success: true, data: [] });
+
+    const lastTest = allTests[0];
+    const testResult = await getTestResult(studentToken, lastTest.details.id, lastTest.summary.attemptNo);
+
+    const weakTopicsRaw = Array.isArray(testResult?.sections) && testResult.sections.length > 0
+      ? testResult.sections
+          .filter(s => (s.totalQuesCount || 0) > 0)
+          .map((s, i) => ({
+            name: (s.title && s.title.trim()) || (testResult.subjectFilters || [])[i] || `Topic ${i + 1}`,
+            score: typeof s.accuracy === 'number' ? Math.round(s.accuracy) : Math.round(((s.correct || 0) / s.totalQuesCount) * 100)
+          }))
+          .sort((a, b) => a.score - b.score)
+          .slice(0, 3)
+      : (testResult?.subjectFilters || []).slice(0, 3).map(name => ({ name, score: 0 }));
+
+    const targetId = testResult?.target?.[0]?._id || lastTest.details.course || "5e6189da5f66e94f14a21f58";
+    const specificExamId = testResult?.courseid || lastTest.details.course || lastTest.details.specificExam || "";
+    const subjectHints = [...new Set([
+      ...weakTopicsRaw.map(t => t.name).filter(Boolean),
+      ...(testResult?.subjectFilters || []),
+      lastTest.details.title || ''
+    ])].filter(Boolean);
+    const subjectIdHint = guessSubjectIdFromHints(subjectHints);
+    const topWeak = weakTopicsRaw[0]?.name || '';
+
+    let recs = await getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints, subjectIdHint, topWeak);
+    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, [], subjectIdHint, topWeak);
+    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, '5e6189da5f66e94f14a21f58', specificExamId, subjectHints, subjectIdHint, topWeak);
+
+    return res.json({ success: true, data: recs.slice(0, 3) });
+  } catch (e) {
+    console.error('[API] recommended-tests failed:', e.message);
+    return res.json({ success: true, data: [] });
   }
 });
 
@@ -2043,12 +2131,10 @@ SSC GD: 80 Qs | 60 min | -0.25 | GK=40 Qs (50% of paper, cannot skip)
   Include this exact CTA: 🎯 Download Report: [Download PDF Report]
 
 - If user asks for "Recommended Tests", "Mock test links", or "Kya attempt karun":
-  You MUST use the real tests from <USER_DATA> (recommendations field).
-  Say exactly: "Here your test [Name]" where [Name] is the user's name from data, followed by "test links below", then list the links.
-  Format: "Here your test [Name]\ntest links below\n\n1. [Test Title](Link)\n2. [Test Title](Link)"
-  Include up to 3 specific recommendations with their links.
-  If the recommendations list is empty, do NOT invent or suggest generic Testbook pages.
-  Say that you could not verify a direct link and ask the user to refresh the analysis.
+  Check the recommendations field in <USER_DATA>.
+  If recommendations has items: list up to 3 with title and link in format "1. [Title](link)"
+  If recommendations is empty or missing: say "I'm fetching your personalised test links — this usually takes a moment. Try asking again in a few seconds, or tap 'Analyze My Preparation' to get instant recommendations based on your weak topics."
+  Never show a numbered list with empty items. Never invent links.
 
 ## TONE CALIBRATION
 

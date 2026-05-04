@@ -45,6 +45,13 @@ interface Message {
   timestamp: Date;
   isPlan?: boolean;
   planData?: any;
+  showAnalysis?: boolean;
+  showFomo?: boolean;
+  fomoScore?: number;
+  showIntroCard?: boolean;
+  introTestName?: string | null;
+  introTotalMarks?: number | null;
+  showPitch?: boolean;
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -245,6 +252,543 @@ function normalizeResponseText(text: string) {
   return `${normalized.slice(0, MAX_RESPONSE_TEXT_CHARS).trim()}\n\nResponse trimmed for smooth display. Ask Meera to continue for the next part.`;
 }
 
+// ─── Exam helpers ──────────────────────────────────────────────────────────
+
+function getDaysLeft(testName: string | null): number {
+  const n = (testName || "").toLowerCase();
+  const map: [RegExp, string][] = [
+    [/cgl/, "2026-09-10"],
+    [/chsl/, "2026-08-05"],
+    [/cpo/, "2026-10-15"],
+    [/mts/, "2026-07-20"],
+    [/gd/, "2026-11-01"],
+    [/steno/, "2026-09-25"],
+  ];
+  const hit = map.find(([re]) => re.test(n));
+  const target = new Date(hit ? hit[1] : "2026-08-20");
+  return Math.max(1, Math.ceil((target.getTime() - Date.now()) / 86400000));
+}
+
+function getExamSocialProof(testName: string | null, totalMarks: number | null) {
+  const n = (testName || "").toLowerCase();
+  const tm = totalMarks ?? 100;
+  const topPct = n.includes("cgl") ? 0.96 : 0.94;
+  const cutPct = n.includes("cgl") ? 0.74 : n.includes("mts") ? 0.62 : 0.68;
+  return {
+    students: n.includes("cgl") ? "1,42,865" : n.includes("mts") ? "1,24,492" : "98,742",
+    topScore: `${Math.round(tm * topPct)}/${tm}`,
+    cutoff: `~${Math.round(tm * cutPct)}/${tm}`,
+  };
+}
+
+// ─── Questionnaire data ─────────────────────────────────────────────────────
+
+const QUESTIONNAIRE = [
+  {
+    number: 1, question: "How many SSC CGL mocks have you attempted so far?", emoji: "📝",
+    options: [
+      { label: "0 mocks", value: 1, tag: "Haven't started yet" },
+      { label: "1–3 mocks", value: 2, tag: "Just getting started" },
+      { label: "5+ mocks", value: 3, tag: "Regularly practicing" },
+    ],
+  },
+  {
+    number: 2, question: "What is your average mock score percentage?", emoji: "📊",
+    options: [
+      { label: "Less than 50%", value: 1, tag: "Needs improvement" },
+      { label: "50–70%", value: 2, tag: "On track" },
+      { label: "70% and above", value: 3, tag: "Strong performance" },
+    ],
+  },
+  {
+    number: 3, question: "What's your accuracy rate in practice questions?", emoji: "🎯",
+    options: [
+      { label: "Below 60%", value: 1, tag: "Room to grow" },
+      { label: "60–80%", value: 2, tag: "Decent accuracy" },
+      { label: "Above 80%", value: 3, tag: "High accuracy" },
+    ],
+  },
+  {
+    number: 4, question: "How confident are you about clearing SSC CGL Tier 1?", emoji: "💪",
+    options: [
+      { label: "Not confident", value: 1, tag: "Need more practice" },
+      { label: "Somewhat confident", value: 2, tag: "Getting there" },
+      { label: "Very confident", value: 3, tag: "Ready to ace it" },
+    ],
+  },
+  {
+    number: 5, question: "Which section do you find most challenging?", emoji: "🔍",
+    options: [
+      { label: "Quantitative Aptitude", value: 1, tag: "Needs focused drills" },
+      { label: "Reasoning", value: 2, tag: "Speed & logic practice" },
+      { label: "English", value: 2, tag: "Grammar & vocab work" },
+      { label: "General Awareness", value: 3, tag: "Daily revision helps" },
+    ],
+  },
+  {
+    number: 6, question: "How many hours do you dedicate weekly for SSC CGL prep?", emoji: "⏱️",
+    options: [
+      { label: "Less than 5 hours", value: 1, tag: "Low dedication" },
+      { label: "5–10 hours", value: 2, tag: "Moderate effort" },
+      { label: "More than 10 hours", value: 3, tag: "High commitment" },
+    ],
+  },
+];
+
+// ─── IntroCard (Flow 1 — conversational hook) ───────────────────────────────
+
+function IntroCard({
+  testName, onAnalyze,
+}: { testName: string | null; totalMarks: number | null; onAnalyze: () => void }) {
+  const examLabel = testName ? testName.replace(/:.*/i, "").trim() : "SSC CGL";
+  return (
+    <div className="space-y-3">
+      <p className="text-[14px] font-semibold leading-relaxed">
+        Hi, I'm <span className="font-black text-[#2563eb]">Meera</span> — your {examLabel} prep mentor.
+        {" "}I just analyzed thousands of aspirants preparing for{" "}
+        <span className="font-black">{examLabel}</span> on our platform…
+      </p>
+
+      <div>
+        <p className="text-[13px] font-bold text-[#1e293b] mb-1.5">📊 Most serious aspirants:</p>
+        <div className="space-y-1">
+          {[
+            "Attempt 3–5 mocks every week",
+            "Maintain 70%+ accuracy before the exam",
+            "Start full-length tests at least 3 months before Tier 1",
+          ].map((b) => (
+            <div key={b} className="flex items-start gap-2">
+              <span className="font-black text-[#2563eb] text-[13px] mt-px">•</span>
+              <p className="text-[13px] font-semibold text-[#334155]">{b}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-[13px] font-semibold text-[#475569]">
+        But many new aspirants struggle with consistency and{" "}
+        <span className="font-black text-[#1e293b]">don't know where they stand.</span>
+      </p>
+
+      <p className="text-[13px] font-semibold text-[#475569]">
+        Let me quickly understand your preparation level — it'll take{" "}
+        <span className="font-black text-[#2563eb]">30 seconds.</span>
+      </p>
+
+      <button
+        onClick={onAnalyze}
+        className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-3 text-[14px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]"
+      >
+        Test Your Preparation <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// ─── QuestionnaireModal ─────────────────────────────────────────────────────
+
+function QuestionnaireModal({ onComplete }: { onComplete: (score: number) => void }) {
+  const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState<number[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [fading, setFading] = useState(false);
+
+  const q = QUESTIONNAIRE[step];
+  const isLast = step === QUESTIONNAIRE.length - 1;
+
+  const next = () => {
+    if (selected === null || fading) return;
+    const next = [...answers, selected];
+    if (!isLast) {
+      setFading(true);
+      setTimeout(() => { setAnswers(next); setStep(s => s + 1); setSelected(null); setFading(false); }, 200);
+    } else {
+      onComplete(next.reduce((a, b) => a + b, 0));
+    }
+  };
+
+  const back = () => {
+    if (step === 0 || fading) return;
+    setFading(true);
+    setTimeout(() => { setStep(s => s - 1); setSelected(answers[step - 1] ?? null); setAnswers(a => a.slice(0, -1)); setFading(false); }, 200);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-end justify-center bg-black/50 backdrop-blur-sm">
+      <div className="flex w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-[linear-gradient(180deg,#f5f9ff,#eef0ff)] pb-[max(1.4rem,env(safe-area-inset-bottom))] shadow-2xl animate-in slide-in-from-bottom duration-300">
+        <div className="h-1 w-full bg-blue-100">
+          <div className="h-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] transition-all duration-500" style={{ width: `${(step / QUESTIONNAIRE.length) * 100}%` }} />
+        </div>
+
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+          <p className="text-[11px] font-black uppercase tracking-widest text-[#2563eb]">Preparation Check · {step + 1}/{QUESTIONNAIRE.length}</p>
+          <div className="flex gap-1">
+            {QUESTIONNAIRE.map((_, i) => (
+              <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i < step ? "w-4 bg-[#2563eb]" : i === step ? "w-6 bg-[#2563eb]" : "w-1.5 bg-blue-200"}`} />
+            ))}
+          </div>
+        </div>
+
+        <div className={`flex flex-col px-5 pt-2 pb-4 transition-all duration-200 ${fading ? "translate-x-3 opacity-0" : "opacity-100"}`}>
+          <div className="mb-2 text-[36px] leading-none">{q.emoji}</div>
+          <h3 className="mb-5 text-[18px] font-black leading-snug text-[#111f45]">{q.question}</h3>
+          <div className="flex flex-col gap-2.5">
+            {q.options.map((opt) => {
+              const active = selected === opt.value;
+              return (
+                <button key={opt.value} onClick={() => setSelected(opt.value)}
+                  className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all active:scale-[0.98] ${active ? "border-[#2563eb] bg-gradient-to-r from-[#2563eb] to-[#4f46e5] shadow-md" : "border-blue-100 bg-white/90 hover:border-[#2563eb]/40"}`}>
+                  <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${active ? "border-white bg-white" : "border-slate-300"}`}>
+                    {active && <div className="h-2 w-2 rounded-full bg-[#2563eb]" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-[14px] font-black ${active ? "text-white" : "text-[#111f45]"}`}>{opt.label}</p>
+                    <p className={`text-[11px] font-semibold ${active ? "text-blue-100" : "text-slate-400"}`}>{opt.tag}</p>
+                  </div>
+                  {active && <svg className="h-4 w-4 shrink-0 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="px-5 pt-1">
+          <button onClick={next} disabled={selected === null}
+            className={`flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-[15px] font-black text-white shadow-lg transition-all active:scale-[0.98] ${selected !== null ? "bg-gradient-to-r from-[#2563eb] to-[#4f46e5] shadow-blue-700/20 hover:brightness-105" : "cursor-not-allowed bg-slate-200 shadow-none"}`}>
+            {isLast ? "Reveal My Result" : "Next"} <ArrowRight className="h-4 w-4" />
+          </button>
+          {step > 0 && <button onClick={back} className="mt-2 w-full py-1.5 text-center text-[12px] font-semibold text-slate-400">← Back</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Topic → recommended test mapping ───────────────────────────────────────
+
+const TOPIC_TEST_MAP: { pattern: RegExp; title: string; tag: string; url: string }[] = [
+  { pattern: /arithmetic|percent|ratio|profit|loss|interest|average|time.*work|time.*speed|pipe/i, title: "Arithmetic Practice Set", tag: "Boost weak maths", url: "https://testbook.com/ssc-cgl-practice-questions/arithmetic-questions" },
+  { pattern: /algebra|equation|linear|quadratic|polynomial/i, title: "Algebra Drills", tag: "Strengthen algebra", url: "https://testbook.com/ssc-cgl-practice-questions/algebra-questions" },
+  { pattern: /geometry|mensuration|triangle|circle|area|volume|coordinate/i, title: "Geometry & Mensuration", tag: "Visual maths boost", url: "https://testbook.com/ssc-cgl-practice-questions/geometry-questions" },
+  { pattern: /number\s*system|hcf|lcm|divisibility|prime/i, title: "Number System Quiz", tag: "Foundation building", url: "https://testbook.com/ssc-cgl-practice-questions/number-system-questions" },
+  { pattern: /data\s*interpret|di|table|chart|graph/i, title: "Data Interpretation Set", tag: "Speed & accuracy", url: "https://testbook.com/ssc-cgl-practice-questions/data-interpretation-questions" },
+  { pattern: /reasoning|analogy|series|coding|syllogism|direction|blood\s*relation|puzzle/i, title: "Reasoning Speed Drill", tag: "Score +10 quickly", url: "https://testbook.com/ssc-cgl-practice-questions/reasoning-questions" },
+  { pattern: /english|grammar|vocab|comprehension|cloze|error|fill.*blank|idiom|phrase/i, title: "English Practice Test", tag: "Grammar & vocab", url: "https://testbook.com/ssc-cgl-practice-questions/english-questions" },
+  { pattern: /general\s*awareness|ga|gk|history|geography|polity|economy|science|biology|physics|chemistry/i, title: "GA Mock Quiz", tag: "GK rapid fire", url: "https://testbook.com/ssc-cgl-practice-questions/general-awareness-questions" },
+  { pattern: /current\s*affairs|current|news/i, title: "Current Affairs Test", tag: "Stay updated", url: "https://testbook.com/current-affairs" },
+  { pattern: /statistics|data|mean|median|mode|variance/i, title: "Statistics Practice", tag: "Data & stats boost", url: "https://testbook.com/ssc-cgl-practice-questions/statistics-questions" },
+];
+
+function getRecommendedTests(weakTopics: any[]): { title: string; tag: string; url: string }[] {
+  if (!Array.isArray(weakTopics) || weakTopics.length === 0) return [];
+  const results: { title: string; tag: string; url: string }[] = [];
+  const seen = new Set<string>();
+  for (const wt of weakTopics) {
+    const topicName = String(wt?.topic || wt?.name || wt || "");
+    for (const mapping of TOPIC_TEST_MAP) {
+      if (mapping.pattern.test(topicName) && !seen.has(mapping.title)) {
+        seen.add(mapping.title);
+        results.push({ title: mapping.title, tag: mapping.tag, url: mapping.url });
+        if (results.length >= 3) return results;
+        break;
+      }
+    }
+  }
+  return results;
+}
+
+// ─── FomoCard (Flow 3 — insight reveal only) ────────────────────────────────
+
+function FomoCard({ score }: { score: number }) {
+  const uid = Math.round(score * 100);
+  const readiness = Math.round(((score - 6) / 12) * 70) + 8;
+  const isLow = readiness < 40;
+  const isMid = readiness >= 40 && readiness < 70;
+  const isGreen = readiness >= 70;
+  const zoneColor = isGreen ? "#16a34a" : isMid ? "#d97706" : "#dc2626";
+
+  const [animReadiness, setAnimReadiness] = useState(0);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const duration = 1600;
+    const startTime = performance.now();
+    function step(now: number) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimReadiness(Math.round(eased * readiness));
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    }
+    rafRef.current = requestAnimationFrame(step);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [readiness]);
+
+  const insight = isLow
+    ? { behind: "80%", gap: "lack of mock exposure + low accuracy", warning: "clearing Tier 1 will be very difficult", fix: "4–6 weeks" }
+    : isMid
+    ? { behind: "55%", gap: "inconsistency in practice + accuracy gaps", warning: "your rank will stay below cutoff", fix: "3–4 weeks" }
+    : { behind: "25%", gap: "sectional weak spots + time management", warning: "toppers will still outpace you", fix: "2–3 weeks" };
+
+  // SVG gauge params
+  const CX = 130, CY = 128, R = 104;
+  function toXY(deg: number): [number, number] {
+    const r = (deg * Math.PI) / 180;
+    return [CX + R * Math.cos(r), CY - R * Math.sin(r)];
+  }
+  function arcD(s: number, e: number) {
+    const [sx, sy] = toXY(s), [ex, ey] = toXY(e);
+    return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+  }
+  const needleLen = R - 18;
+  const nRad = ((180 - (animReadiness / 100) * 180) * Math.PI) / 180;
+  const nX = (CX + needleLen * Math.cos(nRad)).toFixed(2);
+  const nY = (CY - needleLen * Math.sin(nRad)).toFixed(2);
+
+  function tickAt(deg: number) {
+    const inner = R - 26, outer = R - 4;
+    const ri = (deg * Math.PI) / 180;
+    return {
+      x1: (CX + inner * Math.cos(ri)).toFixed(2), y1: (CY - inner * Math.sin(ri)).toFixed(2),
+      x2: (CX + outer * Math.cos(ri)).toFixed(2), y2: (CY - outer * Math.sin(ri)).toFixed(2),
+    };
+  }
+  const t40 = tickAt(108), t70 = tickAt(54);
+
+  // Animated zone color based on animReadiness
+  const animIsGreen = animReadiness >= 70;
+  const animIsMid = animReadiness >= 40 && animReadiness < 70;
+  const animColor = animIsGreen ? "#16a34a" : animIsMid ? "#d97706" : "#dc2626";
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] font-bold text-[#1e293b]">Here's what I found 👇</p>
+
+      {/* Gauge card */}
+      <div className="overflow-hidden rounded-2xl shadow-xl border border-slate-200/80">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[#0a1628] via-[#0f172a] to-[#1e3a8a] px-4 py-3.5 text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300/80 mb-0.5">Analysis Complete</p>
+          <p className="text-[16px] font-black tracking-tight text-white leading-snug">
+            Your Exam Readiness Score
+          </p>
+        </div>
+
+        {/* Gauge bg */}
+        <div className="bg-gradient-to-b from-[#f8fafc] to-white px-2 pb-3 pt-1">
+          <svg viewBox="0 0 260 162" className="mx-auto block w-full max-w-[280px]">
+            <defs>
+              <filter id={`nd-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#1e293b" floodOpacity="0.3"/>
+              </filter>
+              <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+
+            {/* Track shadow */}
+            <path d={arcD(180, 0)} stroke="#cbd5e1" strokeWidth="28" fill="none" strokeLinecap="round" />
+            {/* Track base */}
+            <path d={arcD(180, 0)} stroke="#f1f5f9" strokeWidth="24" fill="none" strokeLinecap="round" />
+
+            {/* Colored zones */}
+            <path d={arcD(180, 108)} stroke="#ef4444" strokeWidth="24" fill="none" strokeLinecap="round" opacity="0.9" />
+            <path d={arcD(108, 54)} stroke="#f59e0b" strokeWidth="24" fill="none" strokeLinecap="round" opacity="0.9" />
+            <path d={arcD(54, 0)} stroke="#22c55e" strokeWidth="24" fill="none" strokeLinecap="round" opacity="0.9" />
+
+            {/* White separator ticks */}
+            <line x1={t40.x1} y1={t40.y1} x2={t40.x2} y2={t40.y2} stroke="white" strokeWidth="3.5" strokeLinecap="round" />
+            <line x1={t70.x1} y1={t70.y1} x2={t70.x2} y2={t70.y2} stroke="white" strokeWidth="3.5" strokeLinecap="round" />
+
+            {/* Needle shadow */}
+            <line x1={CX} y1={CY} x2={nX} y2={nY} stroke="#1e293b" strokeWidth="5" strokeLinecap="round" opacity="0.15" />
+            {/* Needle */}
+            <line x1={CX} y1={CY} x2={nX} y2={nY} stroke="#1e293b" strokeWidth="3.5" strokeLinecap="round" filter={`url(#nd-${uid})`} />
+
+            {/* Pivot rings */}
+            <circle cx={CX} cy={CY} r="14" fill="#1e293b" />
+            <circle cx={CX} cy={CY} r="10" fill="white" />
+            <circle cx={CX} cy={CY} r="5" fill={animColor} />
+
+            {/* Zone labels */}
+            <text x="13" y="154" fontSize="9.5" fill="#ef4444" fontWeight="800">Danger</text>
+            <text x={CX} y="20" fontSize="9.5" fill="#d97706" fontWeight="800" textAnchor="middle">Caution</text>
+            <text x="247" y="154" fontSize="9.5" fill="#16a34a" fontWeight="800" textAnchor="end">Green</text>
+
+            {/* Percentage */}
+            <text x={CX} y={CY - 24} fontSize="42" fontWeight="900" fill={animColor} textAnchor="middle" letterSpacing="-2">{animReadiness}%</text>
+          </svg>
+
+          {/* Zone badge */}
+          <div className="flex justify-center -mt-2 mb-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-[12px] font-black shadow-md" style={{ backgroundColor: `${zoneColor}15`, color: zoneColor, border: `2px solid ${zoneColor}50` }}>
+              {isGreen ? "✓ Green Zone" : isMid ? "⚡ Caution Zone" : "⚠ Danger Zone"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-start gap-2">
+          <span className="text-[13px]">⚠️</span>
+          <p className="text-[13px] font-semibold text-[#1e293b]">
+            You're currently behind <span className="font-black text-[#dc2626]">{insight.behind} of serious aspirants</span>
+          </p>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className="text-[13px]">📌</span>
+          <p className="text-[13px] font-semibold text-[#1e293b]">
+            Your biggest gap is <span className="font-black">{insight.gap}</span>
+          </p>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className="text-[13px]">📉</span>
+          <p className="text-[13px] font-semibold text-[#475569]">
+            If this continues, <span className="font-black text-[#1e293b]">{insight.warning}</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5">
+        <p className="text-[13px] font-black text-emerald-800">✅ But the good part?</p>
+        <p className="mt-0.5 text-[13px] font-semibold text-emerald-700">
+          This is fixable within <span className="font-black">{insight.fix}</span> with the right strategy.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── PitchCard (Flow 4 — smart pitch, conversational) ───────────────────────
+
+function PitchCard({ lmsTests, weakTopics }: { lmsTests?: { title: string; link: string }[]; weakTopics?: any[] }) {
+  const tests = (lmsTests && lmsTests.length > 0)
+    ? lmsTests.map((t) => ({ title: t.title, tag: "Recommended by Meera", url: t.link }))
+    : getRecommendedTests(weakTopics ?? []);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] font-semibold text-[#1e293b]">
+        Top performers on Testbook follow a simple system:
+      </p>
+
+      <div className="space-y-1">
+        {["Regular full-length mocks", "Sectional tests for weak areas", "Detailed performance analysis"].map((f) => (
+          <div key={f} className="flex items-center gap-2">
+            <span className="text-emerald-500 font-black">✅</span>
+            <p className="text-[13px] font-semibold text-[#1e293b]">{f}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[13px] font-semibold text-[#475569]">
+        That's exactly what our <span className="font-black text-[#2563eb]">SSC CGL Test Series</span> helps you do 👇
+      </p>
+
+      <div className="grid grid-cols-2 gap-1.5">
+        {[
+          "Full-length mocks based on latest pattern",
+          "Sectional + topic-wise tests",
+          "Rank + percentile vs lakhs of students",
+          "AI-based analysis (I'll guide you after every test)",
+        ].map((f) => (
+          <div key={f} className="flex items-start gap-1.5 rounded-lg bg-blue-50 border border-blue-100 px-2 py-1.5">
+            <span className="text-[#2563eb] text-xs mt-px font-black">●</span>
+            <p className="text-[10px] font-semibold text-[#334155] leading-snug">{f}</p>
+          </div>
+        ))}
+      </div>
+
+      {tests.length > 0 ? (
+        <div className="space-y-2">
+          {tests.map((test) => (
+            <a key={test.title} href={test.url} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-black text-[#111f45]">{test.title}</p>
+                <p className="text-[10px] font-semibold text-[#2563eb]">{test.tag}</p>
+              </div>
+              <div className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2.5 py-1 text-[11px] font-black text-white">
+                Start <ArrowRight className="h-3 w-3" />
+              </div>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <a href="https://testbook.com/ssc-cgl/mock-tests" target="_blank" rel="noopener noreferrer"
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-3 text-[14px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
+          👉 Start SSC CGL Test Series <ArrowRight className="h-4 w-4" />
+        </a>
+      )}
+
+      <p className="text-[13px] font-semibold text-[#475569]">
+        👉 Want me to create your <span className="font-black text-[#2563eb]">personalized test plan</span> and get you started?
+      </p>
+    </div>
+  );
+}
+
+// ─── AnalysisMeterCard ──────────────────────────────────────────────────────
+
+function AnalysisMeterCard({ accuracy, score, totalMarks, rank, testName }: {
+  accuracy: number | null; score: number | null; totalMarks: number | null; rank: string | null; testName: string | null;
+}) {
+  const acc = typeof accuracy === "number" ? Math.max(0, Math.min(100, accuracy)) : 0;
+  const CX = 100, CY = 108, R = 82;
+  function toXY(deg: number): [number, number] {
+    const r = (deg * Math.PI) / 180;
+    return [CX + R * Math.cos(r), CY - R * Math.sin(r)];
+  }
+  function arcD(s: number, e: number) {
+    const [sx, sy] = toXY(s), [ex, ey] = toXY(e);
+    return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${R} ${R} 0 0 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`;
+  }
+  const needleDeg = 180 - (acc / 100) * 180;
+  const nRad = (needleDeg * Math.PI) / 180;
+  const nX = (CX + (R - 12) * Math.cos(nRad)).toFixed(2);
+  const nY = (CY - (R - 12) * Math.sin(nRad)).toFixed(2);
+  const isGreen = acc >= 70, isCaution = acc >= 40 && acc < 70;
+  const zoneColor = isGreen ? "#16a34a" : isCaution ? "#d97706" : "#dc2626";
+  const zoneBg = isGreen ? "from-green-50 to-emerald-50 border-green-200" : isCaution ? "from-amber-50 to-yellow-50 border-amber-200" : "from-red-50 to-rose-50 border-red-200";
+  const hasData = typeof accuracy === "number";
+
+  return (
+    <div className={`rounded-xl border bg-gradient-to-br ${zoneBg} p-4`}>
+      <p className="mb-1 text-center text-[11px] font-semibold text-slate-500">{testName ? `Analysis · ${testName}` : "Performance Analysis"}</p>
+      {hasData ? (
+        <>
+          <svg viewBox="0 0 200 125" className="mx-auto block w-full max-w-[220px]">
+            <path d={arcD(180, 0)} stroke="#e2e8f0" strokeWidth="16" fill="none" strokeLinecap="round" />
+            <path d={arcD(180, 108)} stroke="#ef4444" strokeWidth="16" fill="none" strokeLinecap="round" />
+            <path d={arcD(108, 54)} stroke="#f59e0b" strokeWidth="16" fill="none" strokeLinecap="round" />
+            <path d={arcD(54, 0)} stroke="#22c55e" strokeWidth="16" fill="none" strokeLinecap="round" />
+            <line x1={CX} y1={CY} x2={nX} y2={nY} stroke="#1e293b" strokeWidth="3" strokeLinecap="round" />
+            <circle cx={CX} cy={CY} r="5.5" fill="#1e293b" />
+            <text x="14" y="120" fontSize="7.5" fill="#ef4444" fontWeight="700">Danger</text>
+            <text x={CX} y="18" fontSize="7.5" fill="#d97706" fontWeight="700" textAnchor="middle">Caution</text>
+            <text x="186" y="120" fontSize="7.5" fill="#16a34a" fontWeight="700" textAnchor="end">Green</text>
+            <text x={CX} y={CY - 20} fontSize="21" fontWeight="800" fill={zoneColor} textAnchor="middle">{acc.toFixed(0)}%</text>
+            <text x={CX} y={CY - 7} fontSize="7" fill="#64748b" textAnchor="middle">Accuracy</text>
+          </svg>
+          <div className="mb-3 text-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold" style={{ backgroundColor: `${zoneColor}20`, color: zoneColor }}>
+              {isGreen ? "✓" : isCaution ? "⚡" : "⚠"} {isGreen ? "Green Zone" : isCaution ? "Caution Zone" : "Danger Zone"}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {score !== null && totalMarks !== null && <div className="rounded-lg bg-white/70 py-2"><p className="text-sm font-bold text-slate-700">{score}/{totalMarks}</p><p className="text-[10px] font-medium text-slate-400">Score</p></div>}
+            <div className="rounded-lg bg-white/70 py-2"><p className="text-sm font-bold" style={{ color: zoneColor }}>{acc.toFixed(1)}%</p><p className="text-[10px] font-medium text-slate-400">Accuracy</p></div>
+            {rank ? <div className="rounded-lg bg-white/70 py-2"><p className="text-sm font-bold text-slate-700">#{rank}</p><p className="text-[10px] font-medium text-slate-400">Rank</p></div> : null}
+          </div>
+        </>
+      ) : (
+        <p className="py-4 text-center text-xs text-slate-400">No analysis data available yet.</p>
+      )}
+    </div>
+  );
+}
+
 function MentorChatPage() {
   const { userid: searchUserid } = Route.useSearch();
   const navigate = useNavigate();
@@ -264,6 +808,8 @@ function MentorChatPage() {
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [isPro, setIsPro] = useState(false);
   const [showCancelPopup, setShowCancelPopup] = useState(false);
+  const [showQuestionnaire, setShowQuestionnaire] = useState(false);
+  const [recommendedTests, setRecommendedTests] = useState<{ title: string; link: string }[]>([]);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [loadingStage, setLoadingStage] = useState<
     "thinking" | "typing" | null
@@ -283,6 +829,10 @@ function MentorChatPage() {
   const stopRequestedRef = useRef(false);
   const responseRunIdRef = useRef(0);
   const useridRef = useRef(userid);
+  const fomoScoreRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
+  const injectTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const recognitionRef = useRef<any>(null);
   const aiBusy = isTyping || isStreaming;
 
   useEffect(() => {
@@ -345,7 +895,7 @@ function MentorChatPage() {
     setSpeakingId(msgId);
     utterance.onend = () => {
       speakingIdRef.current = null;
-      setSpeakingId(null);
+      if (isMountedRef.current) setSpeakingId(null);
       trackEvent(useridRef.current, "ai_voice_finished", "mentor_chat", {
         messageId: msgId,
         fallback: true,
@@ -353,7 +903,7 @@ function MentorChatPage() {
     };
     utterance.onerror = () => {
       speakingIdRef.current = null;
-      setSpeakingId(null);
+      if (isMountedRef.current) setSpeakingId(null);
       trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
         messageId: msgId,
         fallback: true,
@@ -402,23 +952,26 @@ function MentorChatPage() {
     );
 
     try {
-      const audio = await synthesizeSpeech({
+      const audioData = await synthesizeSpeech({
         text: voiceText,
         responseLanguage,
         signal: abortController.signal,
       });
 
-      if (abortController.signal.aborted) return;
+      if (abortController.signal.aborted || !isMountedRef.current) return;
+      if (!audioData?.mimeType || !audioData?.audioContent) {
+        throw new Error("Invalid TTS response");
+      }
 
       const player = new Audio(
-        `data:${audio.mimeType};base64,${audio.audioContent}`,
+        `data:${audioData.mimeType};base64,${audioData.audioContent}`,
       );
       voiceAudioRef.current = player;
       player.onended = () => {
         voiceAudioRef.current = null;
         voiceAbortControllerRef.current = null;
         speakingIdRef.current = null;
-        setSpeakingId(null);
+        if (isMountedRef.current) setSpeakingId(null);
         trackEvent(useridRef.current, "ai_voice_finished", "mentor_chat", {
           messageId: msgId,
         });
@@ -427,15 +980,18 @@ function MentorChatPage() {
         voiceAudioRef.current = null;
         voiceAbortControllerRef.current = null;
         speakingIdRef.current = null;
-        setSpeakingId(null);
+        if (isMountedRef.current) setSpeakingId(null);
         trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
           messageId: msgId,
         });
       };
 
-      await player.play();
+      await player.play().catch((err) => {
+        // Autoplay blocked — fall through to browser voice fallback
+        throw err;
+      });
     } catch (error) {
-      if (abortController.signal.aborted) return;
+      if (abortController.signal.aborted || !isMountedRef.current) return;
 
       const message = error instanceof Error ? error.message : "unknown";
       if (speakWithBrowserVoiceFallback(voiceText, msgId, auto, message)) {
@@ -460,6 +1016,18 @@ function MentorChatPage() {
     useState(DEFAULT_SUGGESTIONS);
 
   useEffect(() => {
+    // Read questionnaire score before any async ops
+    try {
+      const raw = sessionStorage.getItem("meera_questionnaire");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { score: number };
+        fomoScoreRef.current = parsed.score;
+        sessionStorage.removeItem("meera_questionnaire");
+      }
+    } catch {
+      sessionStorage.removeItem("meera_questionnaire");
+    }
+
     // 1. Clean UID from URL → sessionStorage → demo fallback
     let rawUid =
       searchUserid || sessionStorage.getItem("current_userid") || "demo_user";
@@ -494,6 +1062,43 @@ function MentorChatPage() {
     // 3. Always fetch FRESH from the LMS API — no cache
     const controller = new AbortController();
 
+    // Injects intro card (always) and FOMO card (if questionnaire was done)
+    // Must be called AFTER the final initChat so messages aren't overwritten
+    const safeInject = (delay: number, fn: () => void) => {
+      const t = setTimeout(() => {
+        if (!isMountedRef.current) return;
+        fn();
+      }, delay);
+      injectTimeoutsRef.current.push(t);
+    };
+
+    const injectCards = (testName: string | null, totalMarks: number | null) => {
+      safeInject(900, () => {
+        setMessages((prev) => [
+          ...prev,
+          { id: "intro-card", from: "bot" as const, text: " ", timestamp: new Date(), showIntroCard: true, introTestName: testName, introTotalMarks: totalMarks },
+        ]);
+      });
+
+      if (fomoScoreRef.current !== null) {
+        const sc = fomoScoreRef.current;
+        fomoScoreRef.current = null;
+        safeInject(1200, () => {
+          setMessages((prev) => [...prev, { id: "fomo-card", from: "bot" as const, text: " ", timestamp: new Date(), showFomo: true, fomoScore: sc }]);
+        });
+        safeInject(2800, () => {
+          setMessages((prev) => [...prev, { id: "pitch-card", from: "bot" as const, text: " ", timestamp: new Date(), showPitch: true }]);
+          fetch(`/api/recommended-tests/${encodeURIComponent(effectiveUid)}`)
+            .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+            .then((p) => { if (isMountedRef.current && p.success && Array.isArray(p.data) && p.data.length > 0) setRecommendedTests(p.data); })
+            .catch((e) => { console.warn("[Meera] Recommended tests fetch failed:", e.message); });
+        });
+        safeInject(4200, () => {
+          setMessages((prev) => [...prev, { id: "trigger-msg", from: "bot" as const, text: "Also — students who start mocks early improve their score by **15–25 marks** on average.\n\nYou don't need more studying. You need **smarter practice.** 🔥", timestamp: new Date() }]);
+        });
+      }
+    };
+
     fetchLmsAnalysis(effectiveUid, { signal: controller.signal })
       .then((freshData) => {
         const isPaidUser = freshData.isPro || localIsPro;
@@ -512,6 +1117,7 @@ function MentorChatPage() {
         initChat(freshData.user?.name || "Aspirant", freshData.latestAnalysis);
         setActiveSuggestions(buildSuggestionTabs("", freshData.latestAnalysis));
         setLoading(false);
+        injectCards(freshData.latestAnalysis?.testName ?? null, freshData.latestAnalysis?.totalMarks ?? null);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
@@ -523,6 +1129,7 @@ function MentorChatPage() {
           initChat("Aspirant", null);
         }
         setLoading(false);
+        injectCards(null, null);
       });
 
     return () => controller.abort();
@@ -569,14 +1176,9 @@ function MentorChatPage() {
       greetBody = t.default_greet;
     }
 
-    const welcomeMsg: Message = {
-      id: "welcome",
-      from: "bot",
-      text: `${t.hello} ${cleanName}! ${t.im_meera} ${greetBody}`,
-      timestamp: new Date(),
-    };
+    // Welcome message suppressed — IntroCard serves as the opening message
     setMessages((prev) =>
-      hasUserInteractedRef.current && prev.length > 0 ? prev : [welcomeMsg],
+      hasUserInteractedRef.current && prev.length > 0 ? prev : [],
     );
   };
 
@@ -585,12 +1187,19 @@ function MentorChatPage() {
   }, [messages, isTyping, isStreaming, aiThoughts]);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       responseAbortControllerRef.current?.abort();
       voiceAbortControllerRef.current?.abort();
       voiceAudioRef.current?.pause();
+      // Clear all inject card timeouts
+      injectTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      injectTimeoutsRef.current = [];
+      // Stop speech recognition if active
+      try { recognitionRef.current?.abort(); } catch {}
     };
   }, []);
 
@@ -611,6 +1220,7 @@ function MentorChatPage() {
     }
 
     const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
     recognition.continuous = false;
     recognition.interimResults = true;
 
@@ -788,16 +1398,21 @@ function MentorChatPage() {
       const abortController = new AbortController();
       responseAbortControllerRef.current = abortController;
 
-      const fullText = normalizeResponseText(
-        await sendAiMentorMessage({
-          userId: userid || "demo_user",
-          message: userText,
-          history: conversationHistory,
-          responseLanguage,
-          signal: abortController.signal,
-        }),
-      );
+      const rawResponse = await sendAiMentorMessage({
+        userId: userid || "demo_user",
+        message: userText,
+        history: conversationHistory,
+        responseLanguage,
+        signal: abortController.signal,
+      });
       responseAbortControllerRef.current = null;
+
+      if (!isMountedRef.current || stopRequestedRef.current || responseRunIdRef.current !== runId) return;
+      if (typeof rawResponse !== "string" || !rawResponse.trim()) {
+        throw new Error("Empty or invalid response from AI");
+      }
+
+      const fullText = normalizeResponseText(rawResponse);
       trackEvent(userid, "ai_response_received", "mentor_chat", {
         prompt: userText,
         response: fullText,
@@ -854,6 +1469,7 @@ function MentorChatPage() {
             wordCount: words.length,
             durationMs: Date.now() - responseStartedAt,
           });
+          if (hasUserInteractedRef.current) void speakText(fullText, botMsgId, true);
         }
       }, STREAM_TICK_MS);
     } catch (error: any) {
@@ -1127,6 +1743,9 @@ function MentorChatPage() {
         continue;
       }
 
+      // Safety: if current line is somehow empty here, skip it to prevent infinite loop
+      if (!line.trim()) { index += 1; continue; }
+
       const paragraphLines: string[] = [];
       while (
         index < lines.length &&
@@ -1138,6 +1757,8 @@ function MentorChatPage() {
         paragraphLines.push(lines[index].trim());
         index += 1;
       }
+      // Safety: if no lines collected, advance index to prevent infinite loop
+      if (paragraphLines.length === 0) { index += 1; continue; }
 
       blocks.push(
         <p key={`p-${index}`} className="my-1.5 first:mt-0 last:mb-0">
@@ -1350,7 +1971,7 @@ function MentorChatPage() {
       <section className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_12%_8%,rgba(37,99,235,0.055),transparent_34%),radial-gradient(circle_at_92%_32%,rgba(20,184,166,0.06),transparent_30%)] px-4 py-5 [scrollbar-width:none] touch-pan-y [&::-webkit-scrollbar]:hidden">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 pb-2">
           {messages
-            .filter((msg) => msg.from === "user" || msg.text.trim() !== "")
+            .filter((msg) => msg.from === "user" || msg.text.trim() !== "" || msg.showAnalysis || msg.showFomo || msg.showIntroCard || msg.showPitch)
             .map((msg) => (
               <div
                 key={msg.id}
@@ -1375,9 +1996,21 @@ function MentorChatPage() {
                     className={`max-w-full overflow-hidden break-words text-[14px] leading-[1.7] [overflow-wrap:anywhere] ${
                       msg.from === "user"
                         ? "bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-white px-4 py-3 rounded-2xl rounded-br-sm shadow-[0_12px_28px_-18px_rgba(37,99,235,0.75)]"
-                        : "bg-white/95 text-[#18243d] px-4 py-3 rounded-2xl rounded-bl-sm shadow-[0_10px_30px_-24px_rgba(15,23,42,0.7)] border border-blue-100/70"
+                        : msg.showAnalysis
+                          ? "w-[280px] rounded-2xl rounded-bl-sm overflow-hidden"
+                          : "bg-white/95 text-[#18243d] px-4 py-3 rounded-2xl rounded-bl-sm shadow-[0_10px_30px_-24px_rgba(15,23,42,0.7)] border border-blue-100/70"
                     }`}
                   >
+                    {msg.showIntroCard ? (
+                      (() => { try { return <IntroCard testName={msg.introTestName ?? null} totalMarks={null} onAnalyze={() => setShowQuestionnaire(true)} />; } catch { return null; } })()
+                    ) : msg.showFomo ? (
+                      (() => { try { const s = typeof msg.fomoScore === "number" && !isNaN(msg.fomoScore) ? msg.fomoScore : 9; return <FomoCard score={s} />; } catch { return null; } })()
+                    ) : msg.showPitch ? (
+                      (() => { try { return <PitchCard lmsTests={recommendedTests} weakTopics={userData?.latestAnalysis?.weakTopics} />; } catch { return null; } })()
+                    ) : msg.showAnalysis ? (
+                      (() => { try { return <AnalysisMeterCard accuracy={userData?.latestAnalysis?.accuracy ?? null} score={userData?.latestAnalysis?.score ?? null} totalMarks={userData?.latestAnalysis?.totalMarks ?? null} rank={userData?.latestAnalysis?.rank ?? null} testName={userData?.latestAnalysis?.testName ?? null} />; } catch { return null; } })()
+                    ) : (
+                    <>
                     <div className="break-words font-[450] [overflow-wrap:anywhere]">
                       {renderMessageText(msg.text)}
                     </div>
@@ -1437,9 +2070,12 @@ function MentorChatPage() {
                         ))}
                       </div>
                     )}
+                    </>
+                    )}
                   </div>
 
-                  {/* Timestamp + speak */}
+                  {/* Timestamp + speak — hidden for card-only messages */}
+                  {!msg.showFomo && !msg.showPitch && !msg.showIntroCard && !msg.showAnalysis && (
                   <div className="flex items-center gap-2 mt-1 px-0.5">
                     <span className="text-[10px] tabular-nums text-slate-400">
                       {msg.timestamp.toLocaleTimeString([], {
@@ -1447,7 +2083,7 @@ function MentorChatPage() {
                         minute: "2-digit",
                       })}
                     </span>
-                    {msg.from === "bot" && (
+                    {msg.from === "bot" && msg.text.trim() && (
                       <button
                         onClick={() => void speakText(msg.text, msg.id)}
                         className={`flex items-center gap-1 text-[10px] font-semibold transition-colors ${speakingId === msg.id ? "animate-pulse text-[#2563eb]" : "text-slate-400 hover:text-slate-600"}`}
@@ -1461,6 +2097,7 @@ function MentorChatPage() {
                       </button>
                     )}
                   </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1638,6 +2275,33 @@ function MentorChatPage() {
           )}
         </div>
       </div>
+
+      {/* ── QUESTIONNAIRE MODAL ── */}
+      {showQuestionnaire && (
+        <QuestionnaireModal
+          onComplete={(score) => {
+            if (!isMountedRef.current) return;
+            setShowQuestionnaire(false);
+            const t1 = setTimeout(() => {
+              if (!isMountedRef.current) return;
+              setMessages((prev) => [...prev, { id: `fomo-${Date.now()}`, from: "bot" as const, text: " ", timestamp: new Date(), showFomo: true, fomoScore: score }]);
+            }, 400);
+            const t2 = setTimeout(() => {
+              if (!isMountedRef.current) return;
+              setMessages((prev) => [...prev, { id: `pitch-${Date.now()}`, from: "bot" as const, text: " ", timestamp: new Date(), showPitch: true }]);
+              fetch(`/api/recommended-tests/${encodeURIComponent(userid)}`)
+                .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                .then((p) => { if (isMountedRef.current && p.success && Array.isArray(p.data) && p.data.length > 0) setRecommendedTests(p.data); })
+                .catch((e) => { console.warn("[Meera] Recommended tests fetch failed:", e.message); });
+            }, 2000);
+            const t3 = setTimeout(() => {
+              if (!isMountedRef.current) return;
+              setMessages((prev) => [...prev, { id: `trigger-${Date.now()}`, from: "bot" as const, text: "Also — students who start mocks early improve their score by **15–25 marks** on average.\n\nYou don't need more studying. You need **smarter practice.** 🔥", timestamp: new Date() }]);
+            }, 3400);
+            injectTimeoutsRef.current.push(t1, t2, t3);
+          }}
+        />
+      )}
 
       {/* ── PAYWALL MODAL ── */}
       {showPaywall && (
