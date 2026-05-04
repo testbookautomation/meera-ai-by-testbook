@@ -287,8 +287,8 @@ const QUESTIONNAIRE = [
   {
     number: 1, question: "How many SSC CGL mocks have you attempted so far?", emoji: "📝",
     options: [
-      { label: "0 mocks", value: 1, tag: "Haven't started yet" },
-      { label: "1–3 mocks", value: 2, tag: "Just getting started" },
+      { label: "0–2 mocks", value: 1, tag: "Haven't started yet" },
+      { label: "3–4 mocks", value: 2, tag: "Just getting started" },
       { label: "5+ mocks", value: 3, tag: "Regularly practicing" },
     ],
   },
@@ -319,16 +319,16 @@ const QUESTIONNAIRE = [
   {
     number: 5, question: "Which section do you find most challenging?", emoji: "🔍",
     options: [
-      { label: "Quantitative Aptitude", value: 1, tag: "Needs focused drills" },
+      { label: "Quantitative Aptitude", value: 2, tag: "Needs focused drills" },
       { label: "Reasoning", value: 2, tag: "Speed & logic practice" },
       { label: "English", value: 2, tag: "Grammar & vocab work" },
-      { label: "General Awareness", value: 3, tag: "Daily revision helps" },
+      { label: "General Awareness", value: 2, tag: "Daily revision helps" },
     ],
   },
   {
     number: 6, question: "How many hours do you dedicate weekly for SSC CGL prep?", emoji: "⏱️",
     options: [
-      { label: "Less than 5 hours", value: 1, tag: "Low dedication" },
+      { label: "1–3 hours", value: 1, tag: "Low dedication" },
       { label: "5–10 hours", value: 2, tag: "Moderate effort" },
       { label: "More than 10 hours", value: 3, tag: "High commitment" },
     ],
