@@ -353,7 +353,7 @@ function IntroCard({
         <p className="text-[13px] font-bold text-[#1e293b] mb-1.5">📊 Most serious aspirants:</p>
         <div className="space-y-1">
           {[
-            "Attempt 3–5 mocks every week",
+            "Attempt 6–8 mocks every week",
             "Maintain 70%+ accuracy before the exam",
             "Start full-length tests at least 3 months before Tier 1",
           ].map((b) => (

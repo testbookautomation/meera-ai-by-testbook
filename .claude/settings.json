@@ -13,7 +13,9 @@
       "Bash(Select-Object FullName, PSIsContainer)",
       "Bash(Sort-Object FullName)",
       "Bash(git add *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "PowerShell(Start-Process -FilePath \"ngrok\" -ArgumentList \"http 8080\" -WindowStyle Hidden)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:4040/api/tunnels\")"
     ]
   }
 }
