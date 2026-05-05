@@ -1706,6 +1706,22 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
   }
 });
 
+// ── SSC CGL TEST SERIES LINK from LMS ───────────────────────────────────────
+app.get('/api/ssc-cgl-tests', async (req, res) => {
+  try {
+    const adminToken = await adminLogin();
+    const SSC_CGL_TARGET_ID = '5e6189da5f66e94f14a21f58';
+    const hints = ['SSC CGL', 'CGL', 'Tier 1', 'full length mock'];
+    let recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', hints, '', 'SSC CGL');
+    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', [], '', '');
+    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, '', '', hints, '', 'CGL');
+    return res.json({ success: true, data: recs.slice(0, 5) });
+  } catch (e) {
+    console.error('[API] ssc-cgl-tests failed:', e.message);
+    return res.json({ success: true, data: [] });
+  }
+});
+
 // ── DEBUG ENDPOINT: see raw sections from student-test-result API ──────────
 app.get('/api/debug/:userid', async (req, res) => {
   if (process.env.ENABLE_DEBUG_API !== 'true') {

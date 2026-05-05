@@ -15,7 +15,8 @@
       "Bash(git add *)",
       "Bash(git push *)",
       "PowerShell(Start-Process -FilePath \"ngrok\" -ArgumentList \"http 8080\" -WindowStyle Hidden)",
-      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:4040/api/tunnels\")"
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:4040/api/tunnels\")",
+      "WebFetch(domain:testbook.com)"
     ]
   }
 }

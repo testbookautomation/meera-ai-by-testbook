@@ -340,7 +340,7 @@ const QUESTIONNAIRE = [
 function IntroCard({
   testName, onAnalyze,
 }: { testName: string | null; totalMarks: number | null; onAnalyze: () => void }) {
-  const examLabel = testName ? testName.replace(/:.*/i, "").trim() : "SSC CGL";
+  const examLabel = "SSC CGL";
   return (
     <div className="space-y-3">
       <p className="text-[14px] font-semibold leading-relaxed">
@@ -530,8 +530,8 @@ function FomoCard({ score }: { score: number }) {
   const insight = isLow
     ? { behind: "28,76,541", gap: "lack of mock exposure + low accuracy", warning: "clearing Tier 1 will be very difficult", fix: "4–6 weeks" }
     : isMid
-    ? { behind: "55%", gap: "inconsistency in practice + accuracy gaps", warning: "your rank will stay below cutoff", fix: "3–4 weeks" }
-    : { behind: "25%", gap: "sectional weak spots + time management", warning: "toppers will still outpace you", fix: "2–3 weeks" };
+    ? { behind: "19,43,217", gap: "inconsistency in practice + accuracy gaps", warning: "your rank will stay below cutoff", fix: "3–4 weeks" }
+    : { behind: "8,21,094", gap: "sectional weak spots + time management", warning: "toppers will still outpace you", fix: "2–3 weeks" };
 
   // SVG gauge params
   const CX = 130, CY = 128, R = 104;
@@ -665,10 +665,23 @@ function FomoCard({ score }: { score: number }) {
 
 // ─── PitchCard (Flow 4 — smart pitch, conversational) ───────────────────────
 
-function PitchCard({ lmsTests, weakTopics }: { lmsTests?: { title: string; link: string }[]; weakTopics?: any[] }) {
+function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[]; weakTopics?: any[]; userid?: string }) {
   const tests = (lmsTests && lmsTests.length > 0)
     ? lmsTests.map((t) => ({ title: t.title, tag: "Recommended by Meera", url: t.link }))
-    : getRecommendedTests(weakTopics ?? []);
+    : [];
+  const [cglTestUrl, setCglTestUrl] = useState<string>("https://testbook.com/ssc-cgl-exam");
+
+  useEffect(() => {
+    if (tests.length > 0) return;
+    fetch("/api/ssc-cgl-tests")
+      .then((r) => r.json())
+      .then((p) => {
+        if (p.success && Array.isArray(p.data) && p.data.length > 0) {
+          setCglTestUrl(p.data[0].link);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -719,7 +732,7 @@ function PitchCard({ lmsTests, weakTopics }: { lmsTests?: { title: string; link:
           ))}
         </div>
       ) : (
-        <a href="https://testbook.com/ssc-cgl/mock-tests" target="_blank" rel="noopener noreferrer"
+        <a href={cglTestUrl} target="_blank" rel="noopener noreferrer"
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-3 text-[14px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
           👉 Start SSC CGL Test Series <ArrowRight className="h-4 w-4" />
         </a>
@@ -2009,7 +2022,7 @@ function MentorChatPage() {
                     ) : msg.showFomo ? (
                       (() => { try { const s = typeof msg.fomoScore === "number" && !isNaN(msg.fomoScore) ? msg.fomoScore : 9; return <FomoCard score={s} />; } catch { return null; } })()
                     ) : msg.showPitch ? (
-                      (() => { try { return <PitchCard lmsTests={recommendedTests} weakTopics={userData?.latestAnalysis?.weakTopics} />; } catch { return null; } })()
+                      (() => { try { return <PitchCard lmsTests={recommendedTests} weakTopics={userData?.latestAnalysis?.weakTopics} userid={userid} />; } catch { return null; } })()
                     ) : msg.showAnalysis ? (
                       (() => { try { return <AnalysisMeterCard accuracy={userData?.latestAnalysis?.accuracy ?? null} score={userData?.latestAnalysis?.score ?? null} totalMarks={userData?.latestAnalysis?.totalMarks ?? null} rank={userData?.latestAnalysis?.rank ?? null} testName={userData?.latestAnalysis?.testName ?? null} />; } catch { return null; } })()
                     ) : (
