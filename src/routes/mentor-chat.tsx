@@ -528,7 +528,7 @@ function FomoCard({ score }: { score: number }) {
   }, [readiness]);
 
   const insight = isLow
-    ? { behind: "80%", gap: "lack of mock exposure + low accuracy", warning: "clearing Tier 1 will be very difficult", fix: "4–6 weeks" }
+    ? { behind: "28,76,541", gap: "lack of mock exposure + low accuracy", warning: "clearing Tier 1 will be very difficult", fix: "4–6 weeks" }
     : isMid
     ? { behind: "55%", gap: "inconsistency in practice + accuracy gaps", warning: "your rank will stay below cutoff", fix: "3–4 weeks" }
     : { behind: "25%", gap: "sectional weak spots + time management", warning: "toppers will still outpace you", fix: "2–3 weeks" };
