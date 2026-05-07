@@ -868,6 +868,11 @@ function guessSubjectIdFromHints(subjectHints = []) {
   return '';
 }
 
+const SSC_CGL_TARGET_ID = '5e6189da5f66e94f14a21f58';
+const SSC_CGL_SUPER_GROUP_ID = '5e6189e15f66e94f14a21f94';
+const SSC_CGL_GROUP_ID = '5e6189c45f66e94f14a21da6';
+const SSC_CGL_COURSE_ID = '6960d60ab4975a8fe9557df7';
+
 async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints = [], subjectId = '', weakTopic = '') {
   try {
     const fields = "_id,title,course,pid,createdOn,relDate,createdBy,stage,specificExam";
@@ -875,12 +880,16 @@ async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, 
       const params = new URLSearchParams({
         language: 'All',
         fields,
-        role: 'admin',
+        isQuiz: 'false',
         skip: '0',
         limit: '20',
-        stage: 'freeze'
+        stage: 'freeze',
+        targetIds: SSC_CGL_TARGET_ID,
+        targetSuperGroupIds: SSC_CGL_SUPER_GROUP_ID,
+        targetGroupIds: SSC_CGL_GROUP_ID,
+        courseIds: SSC_CGL_COURSE_ID,
       });
-      if (queryTargetId) {
+      if (queryTargetId && queryTargetId !== SSC_CGL_TARGET_ID) {
         params.set('targetIds', String(queryTargetId));
       }
       if (querySpecificExamId) {
@@ -894,9 +903,9 @@ async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, 
       }
       const url = `https://lms-api.testbook.com/api/v2/admin/tests/get?${params.toString()}`;
       console.log(`[API] Fetching recommendations from LMS: ${url} via POST`);
-      const data = await fetchJsonWithRetry(url, { 
+      const data = await fetchJsonWithRetry(url, {
         method: 'POST',
-        headers: { "Authorization": `Bearer ${adminToken}`, "x-tb-client": "lms,1.0" } 
+        headers: { "Authorization": `Bearer ${adminToken}`, "x-tb-client": "lms,1.0" }
       });
       if (Array.isArray(data?.data?.tests)) return data.data.tests;
       if (Array.isArray(data?.data)) return data.data;
@@ -1685,19 +1694,17 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
           .slice(0, 3)
       : (testResult?.subjectFilters || []).slice(0, 3).map(name => ({ name, score: 0 }));
 
-    const targetId = testResult?.target?.[0]?._id || lastTest.details.course || "5e6189da5f66e94f14a21f58";
-    const specificExamId = testResult?.courseid || lastTest.details.course || lastTest.details.specificExam || "";
+    const SSC_CGL_TARGET_ID = '5e6189da5f66e94f14a21f58';
     const subjectHints = [...new Set([
       ...weakTopicsRaw.map(t => t.name).filter(Boolean),
       ...(testResult?.subjectFilters || []),
-      lastTest.details.title || ''
     ])].filter(Boolean);
     const subjectIdHint = guessSubjectIdFromHints(subjectHints);
     const topWeak = weakTopicsRaw[0]?.name || '';
 
-    let recs = await getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints, subjectIdHint, topWeak);
-    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, [], subjectIdHint, topWeak);
-    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, '5e6189da5f66e94f14a21f58', specificExamId, subjectHints, subjectIdHint, topWeak);
+    let recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', subjectHints, subjectIdHint, topWeak);
+    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', [], subjectIdHint, topWeak);
+    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', [], '', '');
 
     return res.json({ success: true, data: recs.slice(0, 3) });
   } catch (e) {
@@ -1710,17 +1717,18 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
 app.get('/api/ssc-cgl-tests', async (req, res) => {
   try {
     const adminToken = await adminLogin();
-    const SSC_CGL_TARGET_ID = '5e6189da5f66e94f14a21f58';
-
     const fetchPage = async (skip) => {
       const params = new URLSearchParams({
         language: 'All',
-        fields: '_id,title,stage',
-        role: 'admin',
+        fields: '_id,title,course,pid,createdOn,relDate,createdBy,stage,specificExam',
+        isQuiz: 'false',
         skip: String(skip),
         limit: '100',
         stage: 'freeze',
         targetIds: SSC_CGL_TARGET_ID,
+        targetSuperGroupIds: SSC_CGL_SUPER_GROUP_ID,
+        targetGroupIds: SSC_CGL_GROUP_ID,
+        courseIds: SSC_CGL_COURSE_ID,
       });
       const url = `https://lms-api.testbook.com/api/v2/admin/tests/get?${params.toString()}`;
       const data = await fetchJsonWithRetry(url, {
@@ -1738,6 +1746,7 @@ app.get('/api/ssc-cgl-tests', async (req, res) => {
     const seen = new Set();
     const tests = allRaw
       .filter(t => t._id && t.title)
+      .filter(t => !t.course || String(t.course) === SSC_CGL_COURSE_ID)
       .filter(t => { if (seen.has(t._id)) return false; seen.add(t._id); return true; })
       .map(t => ({ id: t._id, title: t.title, link: `https://testbook.com/view/tests/${t._id}` }));
 
@@ -2172,11 +2181,9 @@ SSC GD: 80 Qs | 60 min | -0.25 | GK=40 Qs (50% of paper, cannot skip)
   Say: "Certainly! I've prepared your detailed performance report in PDF format. You can download it below."
   Include this exact CTA: 🎯 Download Report: [Download PDF Report]
 
-- If user asks for "Recommended Tests", "Mock test links", or "Kya attempt karun":
-  Check the recommendations field in <USER_DATA>.
-  If recommendations has items: list up to 3 with title and link in format "1. [Title](link)"
-  If recommendations is empty or missing: say "I'm fetching your personalised test links — this usually takes a moment. Try asking again in a few seconds, or tap 'Analyze My Preparation' to get instant recommendations based on your weak topics."
-  Never show a numbered list with empty items. Never invent links.
+- If user asks for "Recommended Tests", "Mock test links", "test links", "direct links", or "Kya attempt karun":
+  Say: "Fetching your SSC CGL test links right now — [View All SSC CGL Tests](https://testbook.com/ssc-cgl-exam)"
+  Never say you are still fetching or ask them to wait. Never invent links.
 
 ## TONE CALIBRATION
 

@@ -725,7 +725,7 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
           ))}
         </div>
       ) : (
-        <a href="https://testbook.com/ssc-cgl-exam" target="_blank" rel="noopener noreferrer"
+        <a href="https://testbook.com/ssc-cgl/test-series/my?hideBreadcrumbs=false" target="_blank" rel="noopener noreferrer"
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-3 text-[14px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
           👉 Start SSC CGL Test Series <ArrowRight className="h-4 w-4" />
         </a>
@@ -1228,7 +1228,7 @@ function MentorChatPage() {
     const responseStartedAt = Date.now();
 
     // ── Test link intercept ──────────────────────────────────────────────────
-    const isTestLinkRequest = /test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test/i.test(userText);
+    const isTestLinkRequest = /test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct|link)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test|mock\s*test|attempt\s*karo|kya\s*attempt|testbook\s*link|test\s*series|ssc\s*cgl\s*test/i.test(userText);
     if (isTestLinkRequest) {
       try {
         setIsTyping(true);
