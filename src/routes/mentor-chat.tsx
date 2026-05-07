@@ -2177,6 +2177,13 @@ function MentorChatPage() {
           onComplete={(score) => {
             if (!isMountedRef.current) return;
             setShowQuestionnaire(false);
+            trackEvent(userid, "questionnaire_completed", "mentor_chat", {
+              survey_score: score,
+              weak_topics: (userData?.latestAnalysis?.weakTopics || []).map((t: any) => t?.topic || t?.name || t).filter(Boolean).join(", "),
+              test_name: userData?.latestAnalysis?.testName || "",
+              accuracy: userData?.latestAnalysis?.accuracy ?? "",
+              is_pro: isPro ? "true" : "false",
+            });
             const t1 = setTimeout(() => {
               if (!isMountedRef.current) return;
               setMessages((prev) => [...prev, { id: `fomo-${Date.now()}`, from: "bot" as const, text: " ", timestamp: new Date(), showFomo: true, fomoScore: score }]);
