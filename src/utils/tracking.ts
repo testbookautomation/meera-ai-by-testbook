@@ -22,39 +22,75 @@ export function webengageIdentify(userId: string) {
   } catch {/* silent */}
 }
 
+function buildWebengagePayload(eventName: string, metadata: EventMetadata): Record<string, unknown> {
+  const m = metadata as Record<string, unknown>;
+  const payload: Record<string, unknown> = {
+    source: "Meera AI",
+    session_id: sessionStorage.getItem("meera_event_session_id") || "",
+    page: window.location.pathname,
+    url: window.location.href,
+    timestamp: new Date().toISOString(),
+  };
+  if (m.message)       payload.message          = String(m.message).slice(0, 500);
+  if (m.response)      payload.response         = String(m.response).slice(0, 500);
+  if (m.error)         payload.error            = m.error;
+  if (m.survey_score !== undefined) payload.survey_score = Number(m.survey_score);
+  if (m.user_score !== undefined)   payload.user_score   = Number(m.user_score);
+  if (m.weak_topics)   payload.weak_topics      = m.weak_topics;
+  if (m.test_name)     payload.test_name        = m.test_name;
+  if (m.accuracy !== undefined)     payload.accuracy     = Number(m.accuracy);
+  if (m.is_pro !== undefined)       payload.is_pro       = m.is_pro;
+  if (m.suggestion)    payload.suggestion_text  = m.suggestion;
+  if (m.input_tokens !== undefined || m.inputTokens !== undefined)
+    payload.input_tokens  = Number((m.input_tokens ?? m.inputTokens) || 0);
+  if (m.output_tokens !== undefined || m.outputTokens !== undefined)
+    payload.output_tokens = Number((m.output_tokens ?? m.outputTokens) || 0);
+  if (m.responseLength !== undefined) payload.response_length  = Number(m.responseLength);
+  if (m.durationMs !== undefined)     payload.response_time_ms = Number(m.durationMs);
+  if (m.reason)  payload.reason = m.reason;
+  if (m.type)    payload.type   = m.type;
+  if (m.label)   payload.label  = m.label;
+  return payload;
+}
+
+// Pending events queued before SDK loads
+const _wePending: Array<[string, Record<string, unknown>]> = [];
+let _weReady = false;
+
+function flushWebengageQueue() {
+  _weReady = true;
+  _wePending.forEach(([name, data]) => {
+    try { window.webengage!.track(name, data); } catch { /* silent */ }
+  });
+  _wePending.length = 0;
+}
+
+// Listen for SDK ready — WebEngage fires "webengage.ready" once loaded
+if (typeof window !== "undefined") {
+  window.addEventListener("webengage.ready", flushWebengageQueue, { once: true });
+  // Fallback: poll until .track() exists (max 10s)
+  let _polls = 0;
+  const _poll = setInterval(() => {
+    if (typeof window.webengage?.track === "function") {
+      clearInterval(_poll);
+      flushWebengageQueue();
+    } else if (++_polls > 100) {
+      clearInterval(_poll);
+    }
+  }, 100);
+}
+
 function fireWebengage(eventName: string, metadata: EventMetadata) {
   try {
-    if (typeof window === "undefined" || !window.webengage) return;
-    const payload: Record<string, unknown> = {
-      source: "Meera AI",
-      session_id: sessionStorage.getItem("meera_event_session_id") || "",
-      page: window.location.pathname,
-      url: window.location.href,
-      timestamp: new Date().toISOString(),
-    };
-    // Map known fields to recommended WebEngage names
-    const m = metadata as Record<string, unknown>;
-    if (m.message)       payload.message        = String(m.message).slice(0, 500);
-    if (m.response)      payload.response        = String(m.response).slice(0, 500);
-    if (m.error)         payload.error           = m.error;
-    if (m.survey_score !== undefined) payload.survey_score = Number(m.survey_score);
-    if (m.user_score !== undefined)   payload.user_score   = Number(m.user_score);
-    if (m.weak_topics)   payload.weak_topics     = m.weak_topics;
-    if (m.test_name)     payload.test_name       = m.test_name;
-    if (m.accuracy !== undefined)     payload.accuracy     = Number(m.accuracy);
-    if (m.is_pro !== undefined)       payload.is_pro       = m.is_pro;
-    if (m.suggestion)    payload.suggestion_text = m.suggestion;
-    if (m.input_tokens !== undefined || m.inputTokens !== undefined)
-      payload.input_tokens  = Number(m.input_tokens ?? m.inputTokens ?? 0);
-    if (m.output_tokens !== undefined || m.outputTokens !== undefined)
-      payload.output_tokens = Number(m.output_tokens ?? m.outputTokens ?? 0);
-    if (m.responseLength !== undefined) payload.response_length = Number(m.responseLength);
-    if (m.durationMs !== undefined)     payload.response_time_ms = Number(m.durationMs);
-    if (m.reason)        payload.reason          = m.reason;
-    if (m.type)          payload.type            = m.type;
-    if (m.label)         payload.label           = m.label;
-    window.webengage.track(eventName, payload);
-  } catch {/* silent */}
+    if (typeof window === "undefined") return;
+    const payload = buildWebengagePayload(eventName, metadata);
+    if (_weReady && typeof window.webengage?.track === "function") {
+      window.webengage.track(eventName, payload);
+    } else {
+      // Queue until SDK is ready
+      _wePending.push([eventName, payload]);
+    }
+  } catch { /* silent */ }
 }
 
 const SESSION_KEY = "meera_event_session_id";

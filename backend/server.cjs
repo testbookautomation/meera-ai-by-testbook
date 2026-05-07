@@ -1204,13 +1204,16 @@ app.post('/api/events', async (req, res) => {
       headers: { 'Content-Type': 'text/plain' },
       body
     })
-      .then((response) => {
+      .then(async (response) => {
+        const text = await response.text().catch(() => '');
         if (!response.ok) {
-          console.error(`[Tracking] Webhook returned HTTP ${response.status}`);
+          console.error(`[Tracking] Webhook HTTP ${response.status} for event=${JSON.parse(body).eventName} body=${text.slice(0, 200)}`);
+        } else {
+          console.log(`[Tracking] ✓ Webhook OK event=${JSON.parse(body).eventName} status=${response.status} resp=${text.slice(0, 100)}`);
         }
       })
       .catch((error) => {
-        console.error('[Tracking] Event forwarding failed:', error.message);
+        console.error(`[Tracking] Webhook fetch failed event=${JSON.parse(body).eventName}: ${error.message}`);
       });
   } catch (error) {
     console.error('[Tracking] Event forwarding failed:', error.message);
@@ -1705,6 +1708,21 @@ app.get('/api/ssc-cgl-tests', async (req, res) => {
   }
 });
 
+
+// ── DEBUG: raw LMS tests ────────────────────────────────────────────────────
+app.get('/api/debug-lms-tests', async (req, res) => {
+  try {
+    const adminToken = await adminLogin();
+    const raw = await fetchJsonWithRetry('https://lms-api.testbook.com/api/v2/admin/tests/get', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ language: 'All', fields: ['_id', 'title', 'stage', 'slug', 'url', 'pid'], skip: 0, limit: 10 }),
+    });
+    return res.json({ count: raw?.data?.count, tests: raw?.data?.tests || [] });
+  } catch (e) {
+    return res.json({ error: e.message });
+  }
+});
 
 // ── DEBUG ENDPOINT: see raw sections from student-test-result API ──────────
 app.get('/api/debug/:userid', async (req, res) => {
