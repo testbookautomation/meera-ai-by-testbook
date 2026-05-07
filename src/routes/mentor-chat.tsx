@@ -732,18 +732,21 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
   const displayTests = userTests.length > 0 ? userTests : allCglTests;
 
   return (
-    <div className="space-y-2.5">
-      <p className="text-[13px] font-semibold text-[#475569]">
-        Our <span className="font-black text-[#2563eb]">SSC CGL Test Series</span> — built to help you crack it 👇
-      </p>
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="rounded-xl bg-gradient-to-r from-[#1e3a8a]/90 to-[#4f46e5]/90 px-4 py-3 text-white">
+        <p className="text-[13px] font-black leading-snug">SSC CGL Test Series</p>
+        <p className="mt-0.5 text-[11px] font-semibold text-blue-200">Full mocks · Sectional tests · AI analysis after every attempt</p>
+      </div>
 
+      {/* Tests */}
       {loadingTests ? (
-        <div className="flex items-center gap-2 py-2">
+        <div className="flex items-center gap-2 py-1">
           <Loader2 className="h-4 w-4 animate-spin text-[#2563eb]" />
           <p className="text-[12px] font-semibold text-[#475569]">Fetching tests…</p>
         </div>
       ) : displayTests.length > 0 ? (
-        <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+        <div className="max-h-44 overflow-y-auto space-y-1.5 pr-0.5">
           {displayTests.map((test) => (
             <a key={test.url} href={test.url} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]">
@@ -756,10 +759,15 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
         </div>
       ) : (
         <a href="https://testbook.com/ssc-cgl/test-series/my?hideBreadcrumbs=false" target="_blank" rel="noopener noreferrer"
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
-          👉 Start SSC CGL Test Series <ArrowRight className="h-4 w-4" />
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-md transition-all hover:brightness-105 active:scale-[0.98]">
+          Browse All Tests <ArrowRight className="h-4 w-4" />
         </a>
       )}
+
+      {/* Closing question */}
+      <p className="text-[13px] font-semibold text-[#475569]">
+        Want me to pick the <span className="font-black text-[#2563eb]">right test for you</span> based on your weak areas? 🎯
+      </p>
     </div>
   );
 }
