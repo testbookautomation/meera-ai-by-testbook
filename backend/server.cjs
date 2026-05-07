@@ -876,7 +876,6 @@ const SSC_CGL_COURSE_ID = '6960d60ab4975a8fe9557df7';
 async function fetchTestsFromLMS(adminToken, extraBody = {}) {
   const body = {
     language: 'All',
-    stage: 'freeze',
     fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course', 'slug', 'url'],
     skip: 0,
     limit: 50,
@@ -888,6 +887,7 @@ async function fetchTestsFromLMS(adminToken, extraBody = {}) {
     body: JSON.stringify(body),
   });
   const tests = Array.isArray(data?.data?.tests) ? data.data.tests : [];
+  console.log(`[LMS] fetchTestsFromLMS raw count=${tests.length} sample:`, tests.slice(0,2).map(t => ({ _id: t._id, title: t.title, stage: t.stage, slug: t.slug, url: t.url })));
   return tests
     .filter(t => t._id && t.title && t.title.trim())
     .map(t => ({
