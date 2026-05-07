@@ -2254,7 +2254,7 @@ function MentorChatPage() {
                 onClick={() => trackEvent(userid, "paywall_cta_clicked", "mentor_chat", {})}
                 className="cta-shine w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] text-white font-black shadow-xl shadow-blue-700/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base mb-3"
               >
-                Unlock Pro Access <ArrowRight className="h-4 w-4" />
+                Get Your Pass <ArrowRight className="h-4 w-4" />
               </a>
 
               <button
