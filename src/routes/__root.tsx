@@ -74,6 +74,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
     <html lang="en">
       <head>
         <HeadContent />
+        {/* WebEngage Web SDK */}
+        <script
+          type="text/javascript"
+          dangerouslySetInnerHTML={{
+            __html: `!function(w,e,b,n,g,a,j){function s(s,t){var r=function(){};return s=function(e,t){r(),s.q.push([e,t])},s.q=[],s.i=t,s}w[b]=s(w[b],""+n),w[b].l=1*new Date,a=e.createElement(g),a.type="text/javascript",a.async=!0,a.src="//cdn.webengage.com/js/webengage-min-v-8.0.js",j=e.getElementsByTagName(g)[0],j.parentNode.insertBefore(a,j)}(window,document,"webengage","~2024b5d8","script");`,
+          }}
+        />
       </head>
       <body>
         {children}

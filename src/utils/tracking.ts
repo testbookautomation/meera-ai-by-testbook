@@ -2,6 +2,61 @@ import { requestJson } from "../services/http";
 
 type EventMetadata = Record<string, unknown>;
 
+// WebEngage Web SDK type declaration
+declare global {
+  interface Window {
+    webengage?: {
+      track: (eventName: string, data?: Record<string, unknown>) => void;
+      user: {
+        login: (userId: string) => void;
+        logout: () => void;
+        setAttribute: (key: string, value: unknown) => void;
+      };
+    };
+  }
+}
+
+export function webengageIdentify(userId: string) {
+  try {
+    window.webengage?.user?.login(userId);
+  } catch {/* silent */}
+}
+
+function fireWebengage(eventName: string, metadata: EventMetadata) {
+  try {
+    if (typeof window === "undefined" || !window.webengage) return;
+    const payload: Record<string, unknown> = {
+      source: "Meera AI",
+      session_id: sessionStorage.getItem("meera_event_session_id") || "",
+      page: window.location.pathname,
+      url: window.location.href,
+      timestamp: new Date().toISOString(),
+    };
+    // Map known fields to recommended WebEngage names
+    const m = metadata as Record<string, unknown>;
+    if (m.message)       payload.message        = String(m.message).slice(0, 500);
+    if (m.response)      payload.response        = String(m.response).slice(0, 500);
+    if (m.error)         payload.error           = m.error;
+    if (m.survey_score !== undefined) payload.survey_score = Number(m.survey_score);
+    if (m.user_score !== undefined)   payload.user_score   = Number(m.user_score);
+    if (m.weak_topics)   payload.weak_topics     = m.weak_topics;
+    if (m.test_name)     payload.test_name       = m.test_name;
+    if (m.accuracy !== undefined)     payload.accuracy     = Number(m.accuracy);
+    if (m.is_pro !== undefined)       payload.is_pro       = m.is_pro;
+    if (m.suggestion)    payload.suggestion_text = m.suggestion;
+    if (m.input_tokens !== undefined || m.inputTokens !== undefined)
+      payload.input_tokens  = Number(m.input_tokens ?? m.inputTokens ?? 0);
+    if (m.output_tokens !== undefined || m.outputTokens !== undefined)
+      payload.output_tokens = Number(m.output_tokens ?? m.outputTokens ?? 0);
+    if (m.responseLength !== undefined) payload.response_length = Number(m.responseLength);
+    if (m.durationMs !== undefined)     payload.response_time_ms = Number(m.durationMs);
+    if (m.reason)        payload.reason          = m.reason;
+    if (m.type)          payload.type            = m.type;
+    if (m.label)         payload.label           = m.label;
+    window.webengage.track(eventName, payload);
+  } catch {/* silent */}
+}
+
 const SESSION_KEY = "meera_event_session_id";
 const MAX_TEXT_LENGTH = 700;
 const MAX_METADATA_LENGTH = 4500;
@@ -93,6 +148,10 @@ export const trackEvent = async (
 ) => {
   if (!userId) return;
 
+  // Fire directly to WebEngage Web SDK (browser-side, instant)
+  fireWebengage(eventName, { ...metadata, page });
+
+  // Also forward to backend → Apps Script → WebEngage REST (server-side backup)
   try {
     await requestJson("/api/events", {
       method: "POST",
@@ -108,7 +167,7 @@ export const trackEvent = async (
         ...getPageContext(),
       }),
     });
-  } catch (err) {
+  } catch {
     // Tracking should never interrupt the user experience.
   }
 };

@@ -22,7 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
-import { installGlobalEventTracking, trackEvent } from "../utils/tracking";
+import { installGlobalEventTracking, trackEvent, webengageIdentify } from "../utils/tracking";
 import { sendAiMentorMessage } from "@/services/aiMentorApi";
 import { fetchLmsAnalysis } from "@/services/lmsApi";
 import { openRazorpayCheckout } from "@/services/razorpay";
@@ -927,6 +927,7 @@ function MentorChatPage() {
 
     setUserid(effectiveUid);
     sessionStorage.setItem("current_userid", effectiveUid);
+    webengageIdentify(effectiveUid);
     setLoading(true);
     trackEvent(effectiveUid, "ai_chat_opened", "mentor_chat");
 
