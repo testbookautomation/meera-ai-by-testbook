@@ -4,7 +4,8 @@
       "Bash(curl -s http://localhost:3001/api/debug-lms-tests)",
       "Bash(curl -s -H \"Origin: http://localhost:5173\" http://localhost:3001/api/debug-lms-tests)",
       "Bash(node -e ' *)",
-      "Bash(curl -s -H \"Origin: http://localhost:5173\" http://localhost:3001/api/health)"
+      "Bash(curl -s -H \"Origin: http://localhost:5173\" http://localhost:3001/api/health)",
+      "Bash(curl -s -c /tmp/cookies2.txt -H \"Origin: http://localhost:5173\" http://localhost:3001/api/session)"
     ]
   }
 }

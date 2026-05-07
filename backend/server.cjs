@@ -875,14 +875,19 @@ const SSC_CGL_COURSE_ID = '6960d60ab4975a8fe9557df7';
 
 async function fetchTestsFromLMS(adminToken, { skip = 0, limit = 50, title = '' } = {}) {
   // LMS admin API only supports POST for tests/get (GET always returns 400)
+  // Use title-based search — PID + target ID combo returns 0 results
+  const searchTitle = title || 'SSC CGL';
   const data = await fetchJsonWithRetry('https://lms-api.testbook.com/api/v2/admin/tests/get', {
     method: 'POST',
     headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0', 'Content-Type': 'application/json' },
     body: JSON.stringify({
       language: 'All',
       fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course', 'slug', 'url', 'target'],
-      stage: 'freeze', skip, limit,
-      ...(title ? { title } : {}),
+      isQuiz: false,
+      stage: 'freeze',
+      title: searchTitle,
+      skip,
+      limit,
     }),
   });
 
@@ -907,8 +912,44 @@ async function fetchTestsFromLMS(adminToken, { skip = 0, limit = 50, title = '' 
   console.log(`[LMS] fetchTestsFromLMS raw=${tests.length} sscCgl=${sscCglTests.length} candidates=${candidates.length}`);
   return candidates.map(t => ({
     ...t,
-    _resolvedLink: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/take-test/${t._id}`),
+    _resolvedLink: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/view/tests/${t._id}`),
   }));
+}
+
+// Fetch frozen SSC CGL tests from Testbook main platform using student auth, ranked by weak areas
+async function fetchSscCglTestsForStudent(studentToken, weakHints = []) {
+  const PID = '69f06580659e3418605887ea';  // SSC CGL course product ID
+  const endpoints = [
+    `https://api.testbook.com/api/v2/tests?targetId=${SSC_CGL_TARGET_ID}&pid=${PID}&isQuiz=false&stage=freeze&skip=0&limit=50&language=English`,
+    `https://api.testbook.com/api/v2/tests?targetId=${SSC_CGL_TARGET_ID}&isQuiz=false&stage=freeze&skip=0&limit=50&language=English`,
+  ];
+  for (const url of endpoints) {
+    try {
+      const data = await fetchJsonWithRetry(url, {
+        headers: { Authorization: `Bearer ${studentToken}`, 'x-tb-client': 'web,1.2', Accept: 'application/json' },
+      });
+      const tests = Array.isArray(data?.data?.tests) ? data.data.tests : [];
+      if (!data?.success || tests.length === 0) continue;
+      console.log(`[SSC Platform] Found ${tests.length} SSC CGL tests via student token`);
+      const scored = tests
+        .filter(t => t._id && t.title && t.title.trim())
+        .map(t => {
+          const titleLower = t.title.toLowerCase();
+          const weakScore = weakHints.reduce((acc, hint) => acc + (titleLower.includes(hint) ? 10 : 0), 0);
+          return {
+            id: t._id,
+            title: t.title.trim(),
+            link: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/view/tests/${t._id}`),
+            score: weakScore,
+          };
+        })
+        .sort((a, b) => b.score - a.score);
+      return scored.slice(0, 5);
+    } catch (e) {
+      console.warn(`[SSC Platform] ${url.split('?')[0]} failed: ${e.message}`);
+    }
+  }
+  return [];
 }
 
 async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints = [], subjectId = '', weakTopic = '') {
@@ -931,7 +972,7 @@ async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, 
       const candidates = rawTests.map(t => ({
         id: t._id,
         title: t.title,
-        link: t._resolvedLink || `https://testbook.com/take-test/${t._id}`,
+        link: t._resolvedLink || `https://testbook.com/view/tests/${t._id}`,
         score: scoreTestAgainstHints(t, Array.isArray(subjectHints) ? subjectHints : [])
       }));
 
@@ -1666,53 +1707,58 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
     if (!tbUser) return res.json({ success: true, data: [] });
 
     const studentToken = await generateStudentToken(adminToken, tbUser._id);
-    const allTests = await getLastTests(studentToken);
+
+    // Fetch student history for weak-area extraction (don't block on missing history)
+    const allTests = await getLastTests(studentToken).catch(() => []);
+
+    // Extract weak topics from most recent test result
+    let weakHints = [];
+    if (allTests && allTests.length > 0) {
+      try {
+        const lastTest = allTests[0];
+        const testResult = await getTestResult(studentToken, lastTest.details.id, lastTest.summary.attemptNo);
+        const weakTopicsRaw = Array.isArray(testResult?.sections) && testResult.sections.length > 0
+          ? testResult.sections
+              .filter(s => (s.totalQuesCount || 0) > 0)
+              .map((s, i) => ({
+                name: (s.title && s.title.trim()) || (testResult.subjectFilters || [])[i] || `Topic ${i + 1}`,
+                score: typeof s.accuracy === 'number' ? Math.round(s.accuracy) : Math.round(((s.correct || 0) / s.totalQuesCount) * 100)
+              }))
+              .sort((a, b) => a.score - b.score)
+              .slice(0, 3)
+          : (testResult?.subjectFilters || []).slice(0, 3).map(name => ({ name, score: 0 }));
+        weakHints = weakTopicsRaw.map(t => t.name.toLowerCase()).filter(Boolean);
+      } catch (_) { /* proceed without weak hints */ }
+    }
+
+    // Primary: fetch real SSC CGL frozen tests from Testbook platform using student auth, ranked by weak areas
+    const platformTests = await fetchSscCglTestsForStudent(studentToken, weakHints);
+    if (platformTests.length > 0) {
+      console.log(`[API] recommended-tests: returning ${platformTests.length} SSC CGL platform tests for ${maskValue(userid)}`);
+      return res.json({ success: true, data: platformTests });
+    }
+
+    // Fallback: filter student history for SSC CGL tests only (exclude JEE, NEET, CUET, RRB, etc.)
     if (!allTests || allTests.length === 0) return res.json({ success: true, data: [] });
 
-    const lastTest = allTests[0];
-    const testResult = await getTestResult(studentToken, lastTest.details.id, lastTest.summary.attemptNo);
-
-    // Extract weak topics from the last test result
-    const weakTopicsRaw = Array.isArray(testResult?.sections) && testResult.sections.length > 0
-      ? testResult.sections
-          .filter(s => (s.totalQuesCount || 0) > 0)
-          .map((s, i) => ({
-            name: (s.title && s.title.trim()) || (testResult.subjectFilters || [])[i] || `Topic ${i + 1}`,
-            score: typeof s.accuracy === 'number' ? Math.round(s.accuracy) : Math.round(((s.correct || 0) / s.totalQuesCount) * 100)
-          }))
-          .sort((a, b) => a.score - b.score)
-          .slice(0, 3)
-      : (testResult?.subjectFilters || []).slice(0, 3).map(name => ({ name, score: 0 }));
-
-    const weakHints = weakTopicsRaw.map(t => t.name.toLowerCase()).filter(Boolean);
-
-    // Build real test links from the student's SSC-relevant test history.
-    // Prioritise SSC CGL > SSC (other) > unrelated exams; within each tier, rank by weak-topic match.
     const SSC_CGL_RE = /ssc\s*cgl/i;
-    const SSC_RE     = /\bssc\b/i;
-    const UNRELATED_RE = /\b(rrb|jssc|uppsc|bpsc|mpsc|opsc|rpsc|rbi|ibps|sbi|upsc|nda|cds|capf|bssc|dsssb|kvs|nvs|jpsc|hpsc|ukpsc|hp\s*police|up\s*police|raj\s*police|bihar\s*police)\b/i;
+    const SSC_RE = /\bssc\b/i;
+    const UNRELATED_RE = /\b(jee|neet|cuet|gate|rrb|jssc|uppsc|bpsc|mpsc|opsc|rpsc|rbi|ibps|sbi|upsc|nda|cds|capf|bssc|dsssb|kvs|nvs|jpsc|hpsc|ukpsc|hp\s*police|up\s*police|raj\s*police|bihar\s*police)\b/i;
 
     const historicalTests = allTests
       .filter(t => t.details?.id && t.details?.title && t.details.title.trim())
       .map(t => {
         const title = t.details.title.trim();
         const titleLower = title.toLowerCase();
-        // Tier: 2 = SSC CGL, 1 = SSC other, 0 = unrelated
         const tier = SSC_CGL_RE.test(title) ? 2 : (SSC_RE.test(title) && !UNRELATED_RE.test(title)) ? 1 : UNRELATED_RE.test(title) ? -1 : 0;
         const weakScore = weakHints.reduce((acc, hint) => acc + (titleLower.includes(hint) ? 5 : 0), 0);
-        return {
-          id: t.details.id,
-          title,
-          link: `https://testbook.com/take-test/${t.details.id}`,
-          score: tier * 100 + weakScore,
-        };
+        return { id: t.details.id, title, link: `https://testbook.com/view/tests/${t.details.id}`, score: tier * 100 + weakScore };
       })
-      .filter(t => t.score >= 0)   // drop clearly unrelated exams
+      .filter(t => t.score >= 100)   // require SSC-family minimum; drops JEE, NEET, CUET, generic tests
       .sort((a, b) => b.score - a.score);
 
     const recs = historicalTests.slice(0, 5).map(({ id, title, link }) => ({ id, title, link }));
-
-    console.log(`[API] recommended-tests: returning ${recs.length} tests from student history for ${maskValue(userid)}`);
+    console.log(`[API] recommended-tests: returning ${recs.length} SSC tests from student history for ${maskValue(userid)}`);
     return res.json({ success: true, data: recs });
   } catch (e) {
     console.error('[API] recommended-tests failed:', e.message);
@@ -1720,20 +1766,36 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
   }
 });
 
+// Known SSC CGL frozen test IDs from LMS (fetched via GET /api/v2/admin/tests/{id})
+const SSC_CGL_TEST_IDS = [
+  '69f09ead4c67d3bec8f9874f', // SSC CGL Advanced Full Test - 6
+];
+
+async function fetchLmsTestById(adminToken, id) {
+  try {
+    const data = await fetchJsonWithRetry(`https://lms-api.testbook.com/api/v2/admin/tests/${id}`, {
+      headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0' },
+    });
+    if (!data?.success || !data?.data?._id) return null;
+    const t = data.data;
+    return {
+      id: t._id,
+      title: (typeof t.title === 'string' ? t.title : '').trim(),
+      link: `https://testbook.com/view/tests/${t._id}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ── ALL SSC CGL TESTS from LMS ───────────────────────────────────────────────
 app.get('/api/ssc-cgl-tests', async (req, res) => {
   try {
     const adminToken = await adminLogin();
-    const [page1, page2] = await Promise.all([
-      fetchTestsFromLMS(adminToken, { skip: 0, limit: 50 }),
-      fetchTestsFromLMS(adminToken, { skip: 50, limit: 50 }),
-    ]);
-    const allRaw = [...page1, ...page2];
-    const seen = new Set();
-    const tests = allRaw
-      .filter(t => { if (seen.has(t._id)) return false; seen.add(t._id); return true; })
-      .map(t => ({ id: t._id, title: t.title, link: t._resolvedLink || `https://testbook.com/take-test/${t._id}` }));
-    console.log(`[API] ssc-cgl-tests total returned:`, tests.length);
+    // Fetch known SSC CGL tests from LMS by ID (listing API doesn't filter correctly)
+    const results = await Promise.all(SSC_CGL_TEST_IDS.map(id => fetchLmsTestById(adminToken, id)));
+    const tests = results.filter(t => t && t.title);
+    console.log(`[API] ssc-cgl-tests: ${tests.length} tests from LMS GET-by-ID`);
     return res.json({ success: true, data: tests });
   } catch (e) {
     console.error('[API] ssc-cgl-tests failed:', e.message);
@@ -1749,7 +1811,7 @@ app.get('/api/debug-lms-tests', async (req, res) => {
     const raw = await fetchJsonWithRetry('https://lms-api.testbook.com/api/v2/admin/tests/get', {
       method: 'POST',
       headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ language: 'All', fields: ['_id', 'title', 'stage', 'slug', 'url', 'pid'], skip: 0, limit: 10 }),
+      body: JSON.stringify({ language: 'All', fields: ['_id', 'title', 'stage', 'slug', 'url', 'pid'], stage: 'freeze', title: 'SSC CGL', skip: 0, limit: 20 }),
     });
     return res.json({ count: raw?.data?.count, tests: raw?.data?.tests || [] });
   } catch (e) {
