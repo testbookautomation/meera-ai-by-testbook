@@ -873,58 +873,34 @@ const SSC_CGL_SUPER_GROUP_ID = '5e6189e15f66e94f14a21f94';
 const SSC_CGL_GROUP_ID = '5e6189c45f66e94f14a21da6';
 const SSC_CGL_COURSE_ID = '6960d60ab4975a8fe9557df7';
 
+async function fetchTestsFromLMS(adminToken, extraBody = {}) {
+  const body = {
+    language: 'All',
+    fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course'],
+    skip: 0,
+    limit: 50,
+    ...extraBody,
+  };
+  const data = await fetchJsonWithRetry('https://lms-api.testbook.com/api/v2/admin/tests/get', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const tests = Array.isArray(data?.data?.tests) ? data.data.tests : [];
+  return tests.filter(t => t._id && t.title && t.title.trim());
+}
+
 async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints = [], subjectId = '', weakTopic = '') {
   try {
-    const fields = "_id,title,course,pid,createdOn,relDate,createdBy,stage,specificExam";
-    const fetchCandidateTests = async (queryTargetId, querySpecificExamId, useTitle = false) => {
-      const params = new URLSearchParams({
-        language: 'All',
-        fields,
-        isQuiz: 'false',
-        skip: '0',
-        limit: '20',
-        stage: 'freeze',
-        targetIds: SSC_CGL_TARGET_ID,
-        targetSuperGroupIds: SSC_CGL_SUPER_GROUP_ID,
-        targetGroupIds: SSC_CGL_GROUP_ID,
-        courseIds: SSC_CGL_COURSE_ID,
-      });
-      if (queryTargetId && queryTargetId !== SSC_CGL_TARGET_ID) {
-        params.set('targetIds', String(queryTargetId));
-      }
-      if (querySpecificExamId) {
-        params.set('specificExams', String(querySpecificExamId));
-      }
-      if (subjectId) {
-        params.set('subjectIds', String(subjectId));
-      }
-      if (useTitle && weakTopic) {
-        params.set('title', String(weakTopic));
-      }
-      const url = `https://lms-api.testbook.com/api/v2/admin/tests/get?${params.toString()}`;
-      console.log(`[API] Fetching recommendations from LMS: ${url} via POST`);
-      const data = await fetchJsonWithRetry(url, {
-        method: 'POST',
-        headers: { "Authorization": `Bearer ${adminToken}`, "x-tb-client": "lms,1.0" }
-      });
-      if (Array.isArray(data?.data?.tests)) return data.data.tests;
-      if (Array.isArray(data?.data)) return data.data;
-      return [];
-    };
-
-    const candidateSets = await Promise.all([
-      fetchCandidateTests(targetId, specificExamId, true),
-      fetchCandidateTests(targetId, '', true),
-      fetchCandidateTests('', '', true),
-      fetchCandidateTests(targetId, specificExamId, false),
-      fetchCandidateTests(targetId, '', false),
-      subjectId ? fetchCandidateTests('', specificExamId, false) : Promise.resolve([])
+    const [allTests, titleTests] = await Promise.all([
+      fetchTestsFromLMS(adminToken),
+      weakTopic ? fetchTestsFromLMS(adminToken, { title: weakTopic }) : Promise.resolve([]),
     ]);
 
     const rawTests = [];
     const seenIds = new Set();
-    candidateSets.flat().forEach((test) => {
-      const testId = String(test?._id || test?.id || test?.pid || '').trim();
+    [...titleTests, ...allTests].forEach((test) => {
+      const testId = String(test?._id || '').trim();
       if (!testId || seenIds.has(testId)) return;
       seenIds.add(testId);
       rawTests.push(test);
@@ -932,29 +908,18 @@ async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, 
 
     if (rawTests.length > 0) {
       const candidates = rawTests.map(t => ({
-        id: t._id || t.id || t.pid,
+        id: t._id,
         title: t.title,
-        link: t.link || t.url || (t._id ? `https://testbook.com/view/tests/${t._id}` : ''),
+        link: `https://testbook.com/view/tests/${t._id}`,
         score: scoreTestAgainstHints(t, Array.isArray(subjectHints) ? subjectHints : [])
-      })).filter(item => item.link);
+      }));
 
       const ranked = [...candidates].sort((a, b) => {
         if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
         return String(a.title || '').localeCompare(String(b.title || ''));
       });
 
-      const matched = ranked.filter(item => (item.score || 0) > 0);
-      const shortlisted = (matched.length > 0 ? matched : ranked).slice(0, 5);
-      const verified = [];
-
-      for (const item of shortlisted) {
-        if (await isValidTestbookViewLink(item.link)) {
-          verified.push({ id: item.id, title: item.title, link: item.link });
-        }
-        if (verified.length >= 3) break;
-      }
-
-      return verified;
+      return ranked.slice(0, 5).map(item => ({ id: item.id, title: item.title, link: item.link }));
     }
     return [];
   } catch (e) {
@@ -1717,45 +1682,23 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
 app.get('/api/ssc-cgl-tests', async (req, res) => {
   try {
     const adminToken = await adminLogin();
-    const fetchPage = async (skip) => {
-      const params = new URLSearchParams({
-        language: 'All',
-        fields: '_id,title,course,pid,createdOn,relDate,createdBy,stage,specificExam',
-        isQuiz: 'false',
-        skip: String(skip),
-        limit: '100',
-        stage: 'freeze',
-        targetIds: SSC_CGL_TARGET_ID,
-        targetSuperGroupIds: SSC_CGL_SUPER_GROUP_ID,
-        targetGroupIds: SSC_CGL_GROUP_ID,
-        courseIds: SSC_CGL_COURSE_ID,
-      });
-      const url = `https://lms-api.testbook.com/api/v2/admin/tests/get?${params.toString()}`;
-      const data = await fetchJsonWithRetry(url, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0' },
-      });
-      const list = Array.isArray(data?.data?.tests) ? data.data.tests : Array.isArray(data?.data) ? data.data : [];
-      return list;
-    };
-
-    // Fetch first two pages (up to 200 tests)
-    const [page1, page2] = await Promise.all([fetchPage(0), fetchPage(100)]);
+    const [page1, page2] = await Promise.all([
+      fetchTestsFromLMS(adminToken, { skip: 0, limit: 50 }),
+      fetchTestsFromLMS(adminToken, { skip: 50, limit: 50 }),
+    ]);
     const allRaw = [...page1, ...page2];
-
     const seen = new Set();
     const tests = allRaw
-      .filter(t => t._id && t.title)
-      .filter(t => !t.course || String(t.course) === SSC_CGL_COURSE_ID)
       .filter(t => { if (seen.has(t._id)) return false; seen.add(t._id); return true; })
       .map(t => ({ id: t._id, title: t.title, link: `https://testbook.com/view/tests/${t._id}` }));
-
+    console.log(`[API] ssc-cgl-tests total returned:`, tests.length);
     return res.json({ success: true, data: tests });
   } catch (e) {
     console.error('[API] ssc-cgl-tests failed:', e.message);
     return res.json({ success: true, data: [] });
   }
 });
+
 
 // ── DEBUG ENDPOINT: see raw sections from student-test-result API ──────────
 app.get('/api/debug/:userid', async (req, res) => {
@@ -2181,9 +2124,9 @@ SSC GD: 80 Qs | 60 min | -0.25 | GK=40 Qs (50% of paper, cannot skip)
   Say: "Certainly! I've prepared your detailed performance report in PDF format. You can download it below."
   Include this exact CTA: 🎯 Download Report: [Download PDF Report]
 
-- If user asks for "Recommended Tests", "Mock test links", "test links", "direct links", or "Kya attempt karun":
-  Say: "Fetching your SSC CGL test links right now — [View All SSC CGL Tests](https://testbook.com/ssc-cgl-exam)"
-  Never say you are still fetching or ask them to wait. Never invent links.
+- If user asks for any test, mock test, recommend, or link related query:
+  Say only: "Here are your recommended SSC CGL tests 👇" — test cards are shown automatically.
+  Never generate a list of links. Never say you are fetching. Never add extra text or buttons.
 
 ## TONE CALIBRATION
 

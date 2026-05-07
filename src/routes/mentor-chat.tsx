@@ -50,6 +50,8 @@ interface Message {
   introTestName?: string | null;
   introTotalMarks?: number | null;
   showPitch?: boolean;
+  showRecommendedTests?: boolean;
+  recommendedTestsData?: { tests: { title: string; link: string }[]; weakTopics: string[] };
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -648,6 +650,64 @@ function FomoCard({ score }: { score: number }) {
   );
 }
 
+// ─── RecommendedTestsCard ────────────────────────────────────────────────────
+
+function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; link: string }[]; weakTopics: string[] }) {
+  const FIND_MORE_URL = "https://testbook.com/ssc-cgl/test-series/my?hideBreadcrumbs=false";
+
+  return (
+    <div className="space-y-3">
+
+      {/* Weak areas */}
+      {weakTopics.length > 0 && (
+        <div className="rounded-xl border border-orange-100 bg-orange-50 px-3 py-2.5">
+          <p className="mb-1.5 text-[11px] font-black uppercase tracking-wide text-orange-500">📌 Your Weak Areas</p>
+          <div className="flex flex-wrap gap-1.5">
+            {weakTopics.map((t) => (
+              <span key={t} className="rounded-full bg-white border border-orange-200 px-2.5 py-0.5 text-[11px] font-bold text-orange-700">
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Test list */}
+      {tests.length > 0 ? (
+        <>
+          <p className="text-[12px] font-semibold text-[#475569]">
+            {weakTopics.length > 0 ? "Best tests based on your weak areas:" : "Recommended SSC CGL tests for you:"}
+          </p>
+          <div className="space-y-2">
+            {tests.map((test, i) => (
+              <a key={test.link} href={test.link} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:brightness-[1.02] active:scale-[0.98]">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-[11px] font-black text-white shadow-sm">
+                  {i + 1}
+                </div>
+                <p className="flex-1 text-[13px] font-black text-[#111f45] leading-snug">{test.title}</p>
+                <div className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2.5 py-1 text-[11px] font-black text-white">
+                  Start <ArrowRight className="h-3 w-3" />
+                </div>
+              </a>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="text-[13px] font-semibold text-[#475569]">
+          Tap below to browse all available SSC CGL tests on Testbook.
+        </p>
+      )}
+
+      {/* Find More button — always visible */}
+      <a href={FIND_MORE_URL} target="_blank" rel="noopener noreferrer"
+        className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-md transition-all hover:brightness-105 active:scale-[0.98]">
+        🔍 Find More Tests <ArrowRight className="h-3.5 w-3.5" />
+      </a>
+    </div>
+  );
+}
+
 // ─── PitchCard (Flow 4 — smart pitch, conversational) ───────────────────────
 
 function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[]; weakTopics?: any[]; userid?: string }) {
@@ -1228,63 +1288,43 @@ function MentorChatPage() {
     const responseStartedAt = Date.now();
 
     // ── Test link intercept ──────────────────────────────────────────────────
-    const isTestLinkRequest = /test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct|link)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test|mock\s*test|attempt\s*karo|kya\s*attempt|testbook\s*link|test\s*series|ssc\s*cgl\s*test/i.test(userText);
+    const isTestLinkRequest = /recommend|test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct|link)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test|mock\s*test|attempt\s*karo|kya\s*attempt|testbook\s*link|test\s*series|ssc\s*cgl\s*test/i.test(userText);
     if (isTestLinkRequest) {
       try {
         setIsTyping(true);
         setLoadingStage("typing");
-        // Try user-specific recommended tests first
+
         let tests: { title: string; link: string }[] = [];
         const recRes = await fetch(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`);
         const recData = await recRes.json();
         if (recData.success && Array.isArray(recData.data) && recData.data.length > 0) {
           tests = recData.data;
         } else {
-          // Fall back to all SSC CGL tests
           const cglRes = await fetch("/api/ssc-cgl-tests");
           const cglData = await cglRes.json();
           if (cglData.success && Array.isArray(cglData.data)) {
-            tests = cglData.data.slice(0, 10);
+            tests = cglData.data.slice(0, 5);
           }
         }
 
         if (!isMountedRef.current || stopRequestedRef.current || responseRunIdRef.current !== runId) return;
 
-        let responseText = "";
-        if (tests.length > 0) {
-          responseText = "Here are your SSC CGL tests from Testbook — tap **Start** to begin:\n\n" +
-            tests.map((t) => `[${t.title}](${t.link})`).join("\n\n");
-        } else {
-          responseText = "I couldn't fetch your test links right now. Please try again in a moment, or [browse SSC CGL tests here](https://testbook.com/ssc-cgl-exam).";
-        }
+        const weakTopics = (userData?.latestAnalysis?.weakTopics || [])
+          .map((t: any) => t?.topic || t?.name || t || "")
+          .filter(Boolean)
+          .slice(0, 4);
 
-        const botMsgId = Math.random().toString();
-        setIsStreaming(true);
-        setMessages((prev) => [...prev, { id: botMsgId, from: "bot" as const, text: "", timestamp: new Date() }]);
-
-        let currentText = "";
-        let index = 0;
-        const words = responseText.split(" ");
-        streamIntervalRef.current = setInterval(() => {
-          if (stopRequestedRef.current || responseRunIdRef.current !== runId) {
-            if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
-            streamIntervalRef.current = null;
-            return;
-          }
-          if (index < words.length) {
-            const nextWords = words.slice(index, index + STREAM_WORDS_PER_TICK);
-            currentText += (index === 0 ? "" : " ") + nextWords.join(" ");
-            setMessages((prev) => prev.map((m) => m.id === botMsgId ? { ...m, text: currentText } : m));
-            index += STREAM_WORDS_PER_TICK;
-          } else {
-            if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
-            streamIntervalRef.current = null;
-            setIsStreaming(false);
-            setIsTyping(false);
-            setLoadingStage(null);
-            setAiThoughts([]);
-          }
-        }, STREAM_TICK_MS);
+        setIsTyping(false);
+        setLoadingStage(null);
+        setAiThoughts([]);
+        setMessages((prev) => [...prev, {
+          id: Math.random().toString(),
+          from: "bot" as const,
+          text: " ",
+          timestamp: new Date(),
+          showRecommendedTests: true,
+          recommendedTestsData: { tests, weakTopics },
+        }]);
         return;
       } catch (e) {
         // Fall through to normal AI response on error
@@ -1870,7 +1910,7 @@ function MentorChatPage() {
       <section className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_12%_8%,rgba(37,99,235,0.055),transparent_34%),radial-gradient(circle_at_92%_32%,rgba(20,184,166,0.06),transparent_30%)] px-4 py-5 [scrollbar-width:none] touch-pan-y [&::-webkit-scrollbar]:hidden">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 pb-2">
           {messages
-            .filter((msg) => msg.from === "user" || msg.text.trim() !== "" || msg.showAnalysis || msg.showFomo || msg.showIntroCard || msg.showPitch)
+            .filter((msg) => msg.from === "user" || msg.text.trim() !== "" || msg.showAnalysis || msg.showFomo || msg.showIntroCard || msg.showPitch || msg.showRecommendedTests)
             .map((msg) => (
               <div
                 key={msg.id}
@@ -1906,6 +1946,8 @@ function MentorChatPage() {
                       (() => { try { const s = typeof msg.fomoScore === "number" && !isNaN(msg.fomoScore) ? msg.fomoScore : 9; return <FomoCard score={s} />; } catch { return null; } })()
                     ) : msg.showPitch ? (
                       (() => { try { return <PitchCard lmsTests={recommendedTests} weakTopics={userData?.latestAnalysis?.weakTopics} userid={userid} />; } catch { return null; } })()
+                    ) : msg.showRecommendedTests ? (
+                      (() => { try { return <RecommendedTestsCard tests={msg.recommendedTestsData?.tests ?? []} weakTopics={msg.recommendedTestsData?.weakTopics ?? []} />; } catch { return null; } })()
                     ) : msg.showAnalysis ? (
                       (() => { try { return <AnalysisMeterCard accuracy={userData?.latestAnalysis?.accuracy ?? null} score={userData?.latestAnalysis?.score ?? null} totalMarks={userData?.latestAnalysis?.totalMarks ?? null} rank={userData?.latestAnalysis?.rank ?? null} testName={userData?.latestAnalysis?.testName ?? null} />; } catch { return null; } })()
                     ) : (
@@ -1974,7 +2016,7 @@ function MentorChatPage() {
                   </div>
 
                   {/* Timestamp + speak — hidden for card-only messages */}
-                  {!msg.showFomo && !msg.showPitch && !msg.showIntroCard && !msg.showAnalysis && (
+                  {!msg.showFomo && !msg.showPitch && !msg.showIntroCard && !msg.showAnalysis && !msg.showRecommendedTests && (
                   <div className="flex items-center gap-2 mt-1 px-0.5">
                     <span className="text-[10px] tabular-nums text-slate-400">
                       {msg.timestamp.toLocaleTimeString([], {
