@@ -920,33 +920,36 @@ async function fetchTestsFromLMS(adminToken, { skip = 0, limit = 50, title = '' 
 async function fetchSscCglTestsForStudent(studentToken, weakHints = []) {
   const PID = '69f06580659e3418605887ea';  // SSC CGL course product ID
   const endpoints = [
-    `https://api.testbook.com/api/v2/tests?targetId=${SSC_CGL_TARGET_ID}&pid=${PID}&isQuiz=false&stage=freeze&skip=0&limit=50&language=English`,
-    `https://api.testbook.com/api/v2/tests?targetId=${SSC_CGL_TARGET_ID}&isQuiz=false&stage=freeze&skip=0&limit=50&language=English`,
+    // LMS API first (student token is generated from lms-api.testbook.com)
+    { url: `https://lms-api.testbook.com/api/v2/admin/tests/get?language=All&fields=_id%2Ctitle%2Cpid%2Cstage%2CspecificExam&isQuiz=false&targetIds=${SSC_CGL_TARGET_ID}&targetGroupIds=${SSC_CGL_GROUP_ID}&skip=0&limit=20&stage=freeze`, client: 'lms,1.0' },
+    { url: `https://lms-api.testbook.com/api/v2/tests?pid=${PID}&stage=freeze&skip=0&limit=20&language=English`, client: 'lms,1.0' },
+    // Main platform fallback
+    { url: `https://api.testbook.com/api/v2/tests?targetId=${SSC_CGL_TARGET_ID}&pid=${PID}&isQuiz=false&stage=freeze&skip=0&limit=50&language=English`, client: 'web,1.2' },
+    { url: `https://api.testbook.com/api/v2/tests?targetId=${SSC_CGL_TARGET_ID}&isQuiz=false&stage=freeze&skip=0&limit=50&language=English`, client: 'web,1.2' },
   ];
-  for (const url of endpoints) {
+  for (const { url, client } of endpoints) {
     try {
       const data = await fetchJsonWithRetry(url, {
-        headers: { Authorization: `Bearer ${studentToken}`, 'x-tb-client': 'web,1.2', Accept: 'application/json' },
+        headers: { Authorization: `Bearer ${studentToken}`, 'x-tb-client': client, Accept: 'application/json' },
       });
       const tests = Array.isArray(data?.data?.tests) ? data.data.tests : [];
       if (!data?.success || tests.length === 0) continue;
-      console.log(`[SSC Platform] Found ${tests.length} SSC CGL tests via student token`);
-      const scored = tests
-        .filter(t => t._id && t.title && t.title.trim())
-        .map(t => {
-          const titleLower = t.title.toLowerCase();
-          const weakScore = weakHints.reduce((acc, hint) => acc + (titleLower.includes(hint) ? 10 : 0), 0);
-          return {
-            id: t._id,
-            title: t.title.trim(),
-            link: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/view/tests/${t._id}`),
-            score: weakScore,
-          };
-        })
-        .sort((a, b) => b.score - a.score);
+      const named = tests.filter(t => t._id && t.title && t.title.trim());
+      if (named.length === 0) continue;
+      console.log(`[SSC Tests] Found ${named.length} SSC CGL tests via ${url.split('/api')[0]}`);
+      const scored = named.map(t => {
+        const titleLower = t.title.toLowerCase();
+        const weakScore = weakHints.reduce((acc, hint) => acc + (titleLower.includes(hint) ? 10 : 0), 0);
+        return {
+          id: t._id,
+          title: t.title.trim(),
+          link: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/view/tests/${t._id}`),
+          score: weakScore,
+        };
+      }).sort((a, b) => b.score - a.score);
       return scored.slice(0, 5);
     } catch (e) {
-      console.warn(`[SSC Platform] ${url.split('?')[0]} failed: ${e.message}`);
+      console.warn(`[SSC Tests] ${url.split('?')[0]} failed: ${e.message}`);
     }
   }
   return [];
@@ -1769,6 +1772,26 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
 // Known SSC CGL frozen test IDs from LMS (fetched via GET /api/v2/admin/tests/{id})
 const SSC_CGL_TEST_IDS = [
   '69f09ead4c67d3bec8f9874f', // SSC CGL Advanced Full Test - 6
+  '69f09f673bc5ffad55717a3b', // English Comprehension Advanced Sectional Test - 4
+  '69f09f640804ca689d581e3d', // English Comprehension Advanced Sectional Test - 3
+  '69f09f6234a326423f2d9a08', // English Comprehension Advanced Sectional Test - 2
+  '69f09f60328393ad69198a16', // English Comprehension Advanced Sectional Test - 1
+  '69f09f5c20043b8bc234565b', // Quantitative Aptitude Advanced Sectional Test - 4
+  '69f09f5a978c63aad73f572a', // Quantitative Aptitude Advanced Sectional Test - 3
+  '69f09f5893cb094fd7c685d5', // Quantitative Aptitude Advanced Sectional Test - 2
+  '69f09f56e4c22fdcf3ade410', // Quantitative Aptitude Advanced Sectional Test - 1
+  '69f09f54cb1bd71df7d1908b', // General Awareness Advanced Sectional Test - 5
+  // General Awareness Sectional Tests 1-10
+  '69f09ef13bc5ffad55717369', // General Awareness Sectional Test - 10
+  '69f09eef93cb094fd7c67e50', // General Awareness Sectional Test - 9
+  '69f09eed3bc5ffad55717358', // General Awareness Sectional Test - 8
+  '69f09eeb978c63aad73f501b', // General Awareness Sectional Test - 7
+  '69f09ee9e4c22fdcf3addd23', // General Awareness Sectional Test - 6
+  '69f09ee70a2811a8c4973e5c', // General Awareness Sectional Test - 5
+  '69f09ee53bc5ffad55717287', // General Awareness Sectional Test - 4
+  '69f09ee3cb1bd71df7d18793', // General Awareness Sectional Test - 3
+  '69f09ee12a06c9c9717540bc', // General Awareness Sectional Test - 2
+  '69f09edfb3c72f57ffbb7993', // General Awareness Sectional Test - 1
 ];
 
 async function fetchLmsTestById(adminToken, id) {
@@ -1792,10 +1815,30 @@ async function fetchLmsTestById(adminToken, id) {
 app.get('/api/ssc-cgl-tests', async (req, res) => {
   try {
     const adminToken = await adminLogin();
-    // Fetch known SSC CGL tests from LMS by ID (listing API doesn't filter correctly)
-    const results = await Promise.all(SSC_CGL_TEST_IDS.map(id => fetchLmsTestById(adminToken, id)));
-    const tests = results.filter(t => t && t.title);
-    console.log(`[API] ssc-cgl-tests: ${tests.length} tests from LMS GET-by-ID`);
+    // Try LMS GET endpoint with query params (same URL the LMS web app uses)
+    let tests = [];
+    try {
+      const lmsUrl = `https://lms-api.testbook.com/api/v2/admin/tests/get?language=All&fields=_id%2Ctitle%2Cpid%2Cstage%2CspecificExam&isQuiz=false&targetIds=${SSC_CGL_TARGET_ID}&targetGroupIds=${SSC_CGL_GROUP_ID}&skip=0&limit=20&stage=freeze`;
+      const data = await fetchJsonWithRetry(lmsUrl, {
+        headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0' },
+      });
+      const raw = Array.isArray(data?.data?.tests) ? data.data.tests : [];
+      const named = raw.filter(t => t._id && t.title && t.title.trim());
+      if (named.length > 0) {
+        tests = named.map(t => ({ id: t._id, title: t.title.trim(), link: `https://testbook.com/view/tests/${t._id}` }));
+        console.log(`[API] ssc-cgl-tests: ${tests.length} tests from LMS GET endpoint`);
+      }
+    } catch (e) {
+      console.warn(`[API] ssc-cgl-tests LMS GET failed: ${e.message}`);
+    }
+
+    // Fallback: fetch known test IDs directly
+    if (tests.length === 0) {
+      const results = await Promise.all(SSC_CGL_TEST_IDS.map(id => fetchLmsTestById(adminToken, id)));
+      tests = results.filter(t => t && t.title);
+      console.log(`[API] ssc-cgl-tests: ${tests.length} tests from GET-by-ID fallback`);
+    }
+
     return res.json({ success: true, data: tests });
   } catch (e) {
     console.error('[API] ssc-cgl-tests failed:', e.message);

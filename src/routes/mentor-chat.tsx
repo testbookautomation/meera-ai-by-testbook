@@ -734,8 +734,8 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
         ))}
       </div>
 
-      {/* Find More button — links to first LMS frozen test when available */}
-      <a href={displayTests[0]?.link || MEERA_URL} target="_blank" rel="noopener noreferrer"
+      {/* Find More button */}
+      <a href={MEERA_URL} target="_blank" rel="noopener noreferrer"
         className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-md transition-all hover:brightness-105 active:scale-[0.98]">
         🔍 Find More Tests <ArrowRight className="h-3.5 w-3.5" />
       </a>
