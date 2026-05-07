@@ -2247,31 +2247,15 @@ function MentorChatPage() {
                 ))}
               </div>
 
-              <div className="flex items-center justify-between rounded-xl border border-[#7aa7ff]/30 bg-[#eef0ff]/80 px-3.5 py-2 mb-3">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-wider text-[#2563eb] mb-0">
-                    {UI_TRANSLATIONS[responseLanguage]?.pro_member || "PRO"}
-                  </p>
-                  <p className="text-xl font-black text-slate-900">
-                    ₹20{" "}
-                    <span className="text-[10px] font-bold text-slate-400">
-                      one-time
-                    </span>
-                  </p>
-                </div>
-                <span className="bg-[#14b8a6] text-white text-[9px] font-black px-2 py-0.5 rounded-lg uppercase">
-                  Save 90%
-                </span>
-              </div>
-
-              <button
-                onClick={handlePayment}
-                className="cta-shine w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] text-white font-black shadow-xl shadow-blue-700/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base [&_*]:text-white"
+              <a
+                href="https://link.testbook.com/Meera"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEvent(userid, "paywall_cta_clicked", "mentor_chat", {})}
+                className="cta-shine w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] text-white font-black shadow-xl shadow-blue-700/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base mb-3"
               >
-                {UI_TRANSLATIONS[responseLanguage]?.pay_unlock ||
-                  "Pay ₹20 & Unlock"}{" "}
-                <ArrowRight className="h-4 w-4" />
-              </button>
+                Unlock Pro Access <ArrowRight className="h-4 w-4" />
+              </a>
 
               <button
                 onClick={() => {
