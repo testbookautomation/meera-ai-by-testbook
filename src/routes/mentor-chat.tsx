@@ -2343,19 +2343,15 @@ function MentorChatPage() {
               })}
             </div>
             <div className="px-5 pb-2">
-              <button
-                onClick={() => {
-                  trackEvent(
-                    userid,
-                    "exit_popup_keep_access_clicked",
-                    "mentor_chat",
-                  );
-                  setShowCancelPopup(false);
-                }}
-                className="cta-shine flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] py-3 text-sm font-black text-white shadow-xl shadow-blue-700/25 transition-all active:scale-[0.98] [&_*]:text-white"
+              <a
+                href="https://link.testbook.com/Meera"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEvent(userid, "exit_popup_keep_access_clicked", "mentor_chat")}
+                className="cta-shine flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#1d4ed8] to-[#4f46e5] py-3 text-sm font-black text-white shadow-xl shadow-blue-700/25 transition-all active:scale-[0.98]"
               >
                 Keep My Access →
-              </button>
+              </a>
             </div>
             <button
               onClick={() => {
