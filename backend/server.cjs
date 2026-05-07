@@ -785,7 +785,7 @@ async function getLastTests(studentToken) {
       "summary": { "attemptedOn": 1, "attemptedQuesions": 1, "correct": 1, "markScored": 1, "rank": 1, "timeTaken": 1, "totalStudents": 1, "isResumableForNextAttempt": 1, "maxAllowedAttempts": 1, "attemptNo": 1, "isReattemptable": 1 }
     }
   }));
-  const url = `https://api.testbook.com/api/v2/students/me/test-submissions?skip=0&limit=10&isQuiz=false&isAddMoreTest=false&type=[Attempted Test] Get Attempted Tests&__projection=${projection}&language=English`;
+  const url = `https://api.testbook.com/api/v2/students/me/test-submissions?skip=0&limit=60&isQuiz=false&isAddMoreTest=false&type=[Attempted Test] Get Attempted Tests&__projection=${projection}&language=English`;
   const data = await fetchJsonWithRetry(url, {
     headers: {
       "Authorization": `Bearer ${studentToken}`,
@@ -873,27 +873,42 @@ const SSC_CGL_SUPER_GROUP_ID = '5e6189e15f66e94f14a21f94';
 const SSC_CGL_GROUP_ID = '5e6189c45f66e94f14a21da6';
 const SSC_CGL_COURSE_ID = '6960d60ab4975a8fe9557df7';
 
-async function fetchTestsFromLMS(adminToken, extraBody = {}) {
-  const body = {
-    language: 'All',
-    fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course', 'slug', 'url'],
-    skip: 0,
-    limit: 50,
-    ...extraBody,
-  };
+async function fetchTestsFromLMS(adminToken, { skip = 0, limit = 50, title = '' } = {}) {
+  // LMS admin API only supports POST for tests/get (GET always returns 400)
   const data = await fetchJsonWithRetry('https://lms-api.testbook.com/api/v2/admin/tests/get', {
     method: 'POST',
     headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      language: 'All',
+      fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course', 'slug', 'url', 'target'],
+      stage: 'freeze', skip, limit,
+      ...(title ? { title } : {}),
+    }),
   });
+
+  const SSC_CGL_RE = /ssc\s*cgl/i;
+  const SSC_RE = /\bssc\b/i;
   const tests = Array.isArray(data?.data?.tests) ? data.data.tests : [];
-  console.log(`[LMS] fetchTestsFromLMS raw count=${tests.length} sample:`, tests.slice(0,2).map(t => ({ _id: t._id, title: t.title, stage: t.stage, slug: t.slug, url: t.url })));
-  return tests
-    .filter(t => t._id && t.title && t.title.trim())
-    .map(t => ({
-      ...t,
-      _resolvedLink: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/take-test/${t._id}`),
-    }));
+  const sscCglTests = tests.filter(t => {
+    if (!t._id || !t.title || !t.title.trim()) return false;
+    const titleMatch = SSC_CGL_RE.test(t.title);
+    const targetMatch = (t.target || []).some(tt => SSC_CGL_RE.test(tt.title || ''));
+    return titleMatch || targetMatch;
+  });
+
+  // If no SSC CGL tests, try SSC-adjacent tests as fallback
+  const candidates = sscCglTests.length > 0 ? sscCglTests : tests.filter(t => {
+    if (!t._id || !t.title || !t.title.trim()) return false;
+    const titleMatch = SSC_RE.test(t.title);
+    const targetMatch = (t.target || []).some(tt => SSC_RE.test(tt.title || ''));
+    return titleMatch || targetMatch;
+  });
+
+  console.log(`[LMS] fetchTestsFromLMS raw=${tests.length} sscCgl=${sscCglTests.length} candidates=${candidates.length}`);
+  return candidates.map(t => ({
+    ...t,
+    _resolvedLink: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/take-test/${t._id}`),
+  }));
 }
 
 async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints = [], subjectId = '', weakTopic = '') {
@@ -1657,6 +1672,7 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
     const lastTest = allTests[0];
     const testResult = await getTestResult(studentToken, lastTest.details.id, lastTest.summary.attemptNo);
 
+    // Extract weak topics from the last test result
     const weakTopicsRaw = Array.isArray(testResult?.sections) && testResult.sections.length > 0
       ? testResult.sections
           .filter(s => (s.totalQuesCount || 0) > 0)
@@ -1668,19 +1684,36 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
           .slice(0, 3)
       : (testResult?.subjectFilters || []).slice(0, 3).map(name => ({ name, score: 0 }));
 
-    const SSC_CGL_TARGET_ID = '5e6189da5f66e94f14a21f58';
-    const subjectHints = [...new Set([
-      ...weakTopicsRaw.map(t => t.name).filter(Boolean),
-      ...(testResult?.subjectFilters || []),
-    ])].filter(Boolean);
-    const subjectIdHint = guessSubjectIdFromHints(subjectHints);
-    const topWeak = weakTopicsRaw[0]?.name || '';
+    const weakHints = weakTopicsRaw.map(t => t.name.toLowerCase()).filter(Boolean);
 
-    let recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', subjectHints, subjectIdHint, topWeak);
-    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', [], subjectIdHint, topWeak);
-    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', [], '', '');
+    // Build real test links from the student's SSC-relevant test history.
+    // Prioritise SSC CGL > SSC (other) > unrelated exams; within each tier, rank by weak-topic match.
+    const SSC_CGL_RE = /ssc\s*cgl/i;
+    const SSC_RE     = /\bssc\b/i;
+    const UNRELATED_RE = /\b(rrb|jssc|uppsc|bpsc|mpsc|opsc|rpsc|rbi|ibps|sbi|upsc|nda|cds|capf|bssc|dsssb|kvs|nvs|jpsc|hpsc|ukpsc|hp\s*police|up\s*police|raj\s*police|bihar\s*police)\b/i;
 
-    return res.json({ success: true, data: recs.slice(0, 3) });
+    const historicalTests = allTests
+      .filter(t => t.details?.id && t.details?.title && t.details.title.trim())
+      .map(t => {
+        const title = t.details.title.trim();
+        const titleLower = title.toLowerCase();
+        // Tier: 2 = SSC CGL, 1 = SSC other, 0 = unrelated
+        const tier = SSC_CGL_RE.test(title) ? 2 : (SSC_RE.test(title) && !UNRELATED_RE.test(title)) ? 1 : UNRELATED_RE.test(title) ? -1 : 0;
+        const weakScore = weakHints.reduce((acc, hint) => acc + (titleLower.includes(hint) ? 5 : 0), 0);
+        return {
+          id: t.details.id,
+          title,
+          link: `https://testbook.com/take-test/${t.details.id}`,
+          score: tier * 100 + weakScore,
+        };
+      })
+      .filter(t => t.score >= 0)   // drop clearly unrelated exams
+      .sort((a, b) => b.score - a.score);
+
+    const recs = historicalTests.slice(0, 5).map(({ id, title, link }) => ({ id, title, link }));
+
+    console.log(`[API] recommended-tests: returning ${recs.length} tests from student history for ${maskValue(userid)}`);
+    return res.json({ success: true, data: recs });
   } catch (e) {
     console.error('[API] recommended-tests failed:', e.message);
     return res.json({ success: true, data: [] });

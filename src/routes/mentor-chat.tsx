@@ -26,6 +26,7 @@ import { installGlobalEventTracking, trackEvent, webengageIdentify } from "../ut
 import { sendAiMentorMessage } from "@/services/aiMentorApi";
 import { fetchLmsAnalysis } from "@/services/lmsApi";
 import { openRazorpayCheckout } from "@/services/razorpay";
+import { requestJson } from "@/services/http";
 
 type SearchParams = { userid?: string };
 
@@ -671,16 +672,27 @@ function FomoCard({ score }: { score: number }) {
 
 const MEERA_URL = "https://link.testbook.com/Meera";
 
-const FALLBACK_SSC_CGL_TESTS: { title: string; link: string }[] = [
-  { title: "SSC CGL Full Mock Test – Tier 1", link: MEERA_URL },
-  { title: "Quantitative Aptitude Practice Set", link: MEERA_URL },
-  { title: "English Language & Comprehension", link: MEERA_URL },
-  { title: "General Intelligence & Reasoning", link: MEERA_URL },
-  { title: "General Awareness – Current Affairs", link: MEERA_URL },
-];
-
 function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; link: string }[]; weakTopics: string[] }) {
-  const displayTests = tests.length > 0 ? tests : FALLBACK_SSC_CGL_TESTS;
+  const [displayTests, setDisplayTests] = useState<{ title: string; link: string }[]>(tests);
+  const [loadingFallback, setLoadingFallback] = useState(tests.length === 0);
+
+  useEffect(() => {
+    if (tests.length > 0) {
+      setDisplayTests(tests);
+      setLoadingFallback(false);
+      return;
+    }
+    // Fetch real LMS tests when no personalized tests are available
+    setLoadingFallback(true);
+    requestJson<{ success: boolean; data: { title: string; link: string }[] }>("/api/ssc-cgl-tests")
+      .then(res => {
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          setDisplayTests(res.data.slice(0, 5));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingFallback(false));
+  }, [tests]);
 
   return (
     <div className="space-y-3">
@@ -704,7 +716,11 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
         {weakTopics.length > 0 ? "Best tests based on your weak areas:" : "Recommended SSC CGL tests for you:"}
       </p>
       <div className="space-y-2">
-        {displayTests.map((test, i) => (
+        {loadingFallback ? (
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-[#2563eb]" />
+          </div>
+        ) : displayTests.map((test, i) => (
           <a key={i} href={test.link} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:brightness-[1.02] active:scale-[0.98]">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-[11px] font-black text-white shadow-sm">
@@ -737,8 +753,7 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
   const [loadingTests, setLoadingTests] = useState(true);
 
   useEffect(() => {
-    fetch("/api/ssc-cgl-tests")
-      .then((r) => r.json())
+    requestJson<{ success: boolean; data: { title: string; link: string }[] }>("/api/ssc-cgl-tests")
       .then((p) => {
         if (p.success && Array.isArray(p.data) && p.data.length > 0) {
           setAllCglTests(p.data.map((t: { title: string; link: string }) => ({ title: t.title, tag: "SSC CGL Test Series", url: t.link })));
@@ -1289,8 +1304,8 @@ function MentorChatPage() {
 
         // Always fetch both in parallel — use personalised first, fall back to all CGL tests
         const [recRes, cglRes] = await Promise.all([
-          fetch(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
-          fetch("/api/ssc-cgl-tests").then(r => r.json()).catch(() => ({ success: false, data: [] })),
+          requestJson<{ success: boolean; data: { title: string; link: string }[] }>(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`).catch(() => ({ success: false, data: [] })),
+          requestJson<{ success: boolean; data: { title: string; link: string }[] }>("/api/ssc-cgl-tests").catch(() => ({ success: false, data: [] })),
         ]);
 
         if (recRes.success && Array.isArray(recRes.data) && recRes.data.length > 0) {
