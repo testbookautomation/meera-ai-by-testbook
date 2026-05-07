@@ -1276,7 +1276,7 @@ function MentorChatPage() {
 
     // ── Test link intercept ──────────────────────────────────────────────────
     const lastBotMsg = [...conversationHistory].reverse().find(m => m.from === "bot")?.text || "";
-    const isAffirmative = /^(yes|haan|ha|sure|ok|okay|yep|yup|bilkul|haa|yeah|do it|show me|show|kar do|batao|recommend karo)$/i.test(userText.trim());
+    const isAffirmative = /^(yes|haan|ha\b|sure|ok|okay|yep|yup|bilkul|haa|yeah|zaroor|definitely|han|go\s+ahead|do\s+it|show\s+me|kar\s+do|of\s+course|please|haan\s+ji|ji\s+haan)\b/i.test(userText.trim());
     const prevWasTestRecommend = /recommend.*test|best mock|mock test.*weak|weak.*test|get you out of/i.test(lastBotMsg);
     const isTestLinkRequest = /recommend|test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct|link)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test|mock\s*test|attempt\s*karo|kya\s*attempt|testbook\s*link|test\s*series|ssc\s*cgl\s*test/i.test(userText)
       || (isAffirmative && prevWasTestRecommend);
