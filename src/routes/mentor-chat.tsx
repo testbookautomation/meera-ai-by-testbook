@@ -456,17 +456,18 @@ function QuestionnaireModal({ onComplete }: { onComplete: (score: number) => voi
 
 // ─── Topic → recommended test mapping ───────────────────────────────────────
 
+const TB = "https://link.testbook.com/Meera";
 const TOPIC_TEST_MAP: { pattern: RegExp; title: string; tag: string; url: string }[] = [
-  { pattern: /arithmetic|percent|ratio|profit|loss|interest|average|time.*work|time.*speed|pipe/i, title: "Arithmetic Practice Set", tag: "Boost weak maths", url: "https://testbook.com/ssc-cgl-practice-questions/arithmetic-questions" },
-  { pattern: /algebra|equation|linear|quadratic|polynomial/i, title: "Algebra Drills", tag: "Strengthen algebra", url: "https://testbook.com/ssc-cgl-practice-questions/algebra-questions" },
-  { pattern: /geometry|mensuration|triangle|circle|area|volume|coordinate/i, title: "Geometry & Mensuration", tag: "Visual maths boost", url: "https://testbook.com/ssc-cgl-practice-questions/geometry-questions" },
-  { pattern: /number\s*system|hcf|lcm|divisibility|prime/i, title: "Number System Quiz", tag: "Foundation building", url: "https://testbook.com/ssc-cgl-practice-questions/number-system-questions" },
-  { pattern: /data\s*interpret|di|table|chart|graph/i, title: "Data Interpretation Set", tag: "Speed & accuracy", url: "https://testbook.com/ssc-cgl-practice-questions/data-interpretation-questions" },
-  { pattern: /reasoning|analogy|series|coding|syllogism|direction|blood\s*relation|puzzle/i, title: "Reasoning Speed Drill", tag: "Score +10 quickly", url: "https://testbook.com/ssc-cgl-practice-questions/reasoning-questions" },
-  { pattern: /english|grammar|vocab|comprehension|cloze|error|fill.*blank|idiom|phrase/i, title: "English Practice Test", tag: "Grammar & vocab", url: "https://testbook.com/ssc-cgl-practice-questions/english-questions" },
-  { pattern: /general\s*awareness|ga|gk|history|geography|polity|economy|science|biology|physics|chemistry/i, title: "GA Mock Quiz", tag: "GK rapid fire", url: "https://testbook.com/ssc-cgl-practice-questions/general-awareness-questions" },
-  { pattern: /current\s*affairs|current|news/i, title: "Current Affairs Test", tag: "Stay updated", url: "https://testbook.com/current-affairs" },
-  { pattern: /statistics|data|mean|median|mode|variance/i, title: "Statistics Practice", tag: "Data & stats boost", url: "https://testbook.com/ssc-cgl-practice-questions/statistics-questions" },
+  { pattern: /arithmetic|percent|ratio|profit|loss|interest|average|time.*work|time.*speed|pipe/i, title: "Arithmetic Practice Set", tag: "Boost weak maths", url: TB },
+  { pattern: /algebra|equation|linear|quadratic|polynomial/i, title: "Algebra Drills", tag: "Strengthen algebra", url: TB },
+  { pattern: /geometry|mensuration|triangle|circle|area|volume|coordinate/i, title: "Geometry & Mensuration", tag: "Visual maths boost", url: TB },
+  { pattern: /number\s*system|hcf|lcm|divisibility|prime/i, title: "Number System Quiz", tag: "Foundation building", url: TB },
+  { pattern: /data\s*interpret|di|table|chart|graph/i, title: "Data Interpretation Set", tag: "Speed & accuracy", url: TB },
+  { pattern: /reasoning|analogy|series|coding|syllogism|direction|blood\s*relation|puzzle/i, title: "Reasoning Speed Drill", tag: "Score +10 quickly", url: TB },
+  { pattern: /english|grammar|vocab|comprehension|cloze|error|fill.*blank|idiom|phrase/i, title: "English Practice Test", tag: "Grammar & vocab", url: TB },
+  { pattern: /general\s*awareness|ga|gk|history|geography|polity|economy|science|biology|physics|chemistry/i, title: "GA Mock Quiz", tag: "GK rapid fire", url: TB },
+  { pattern: /current\s*affairs|current|news/i, title: "Current Affairs Test", tag: "Stay updated", url: TB },
+  { pattern: /statistics|data|mean|median|mode|variance/i, title: "Statistics Practice", tag: "Data & stats boost", url: TB },
 ];
 
 function getRecommendedTests(weakTopics: any[]): { title: string; tag: string; url: string }[] {
@@ -668,20 +669,18 @@ function FomoCard({ score }: { score: number }) {
 
 // ─── RecommendedTestsCard ────────────────────────────────────────────────────
 
-const FALLBACK_SSC_CGL_TESTS = [
-  { title: "SSC CGL Full Mock Test – Tier 1", label: "Full Mock" },
-  { title: "Quantitative Aptitude Practice Set", label: "Maths" },
-  { title: "English Language & Comprehension", label: "English" },
-  { title: "General Intelligence & Reasoning", label: "Reasoning" },
-  { title: "General Awareness – Current Affairs", label: "GA" },
+const MEERA_URL = "https://link.testbook.com/Meera";
+
+const FALLBACK_SSC_CGL_TESTS: { title: string; link: string }[] = [
+  { title: "SSC CGL Full Mock Test – Tier 1", link: MEERA_URL },
+  { title: "Quantitative Aptitude Practice Set", link: MEERA_URL },
+  { title: "English Language & Comprehension", link: MEERA_URL },
+  { title: "General Intelligence & Reasoning", link: MEERA_URL },
+  { title: "General Awareness – Current Affairs", link: MEERA_URL },
 ];
 
 function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; link: string }[]; weakTopics: string[] }) {
-  const MEERA_URL = "https://link.testbook.com/Meera";
-
-  const displayTests = tests.length > 0
-    ? tests.map(t => ({ title: t.title, label: "Start" }))
-    : FALLBACK_SSC_CGL_TESTS;
+  const displayTests = tests.length > 0 ? tests : FALLBACK_SSC_CGL_TESTS;
 
   return (
     <div className="space-y-3">
@@ -706,7 +705,7 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
       </p>
       <div className="space-y-2">
         {displayTests.map((test, i) => (
-          <a key={i} href={MEERA_URL} target="_blank" rel="noopener noreferrer"
+          <a key={i} href={test.link} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:brightness-[1.02] active:scale-[0.98]">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-[11px] font-black text-white shadow-sm">
               {i + 1}
@@ -778,7 +777,7 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
           ))}
         </div>
       ) : (
-        <a href="https://testbook.com/ssc-cgl/test-series/my?hideBreadcrumbs=false" target="_blank" rel="noopener noreferrer"
+        <a href="https://link.testbook.com/Meera" target="_blank" rel="noopener noreferrer"
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-md transition-all hover:brightness-105 active:scale-[0.98]">
           Browse All Tests <ArrowRight className="h-4 w-4" />
         </a>
@@ -1829,7 +1828,7 @@ function MentorChatPage() {
       } else {
         ctas.push({
           label,
-          action: `https://testbook.com/search?q=${encodeURIComponent(label)}`,
+          action: "https://link.testbook.com/Meera",
           type: "link",
         });
       }

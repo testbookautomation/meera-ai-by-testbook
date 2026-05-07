@@ -50,7 +50,7 @@ function SscCglTestsPage() {
           <div className="rounded-2xl border border-blue-100 bg-white p-6 text-center">
             <p className="text-[14px] font-semibold text-[#475569]">No tests found. Please try again later.</p>
             <a
-              href="https://testbook.com/ssc-cgl/mock-tests"
+              href="https://link.testbook.com/Meera"
               target="_blank"
               rel="noopener noreferrer"
               className="mt-4 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-5 py-2.5 text-[13px] font-black text-white"

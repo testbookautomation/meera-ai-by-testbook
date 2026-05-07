@@ -876,7 +876,8 @@ const SSC_CGL_COURSE_ID = '6960d60ab4975a8fe9557df7';
 async function fetchTestsFromLMS(adminToken, extraBody = {}) {
   const body = {
     language: 'All',
-    fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course'],
+    stage: 'freeze',
+    fields: ['_id', 'title', 'stage', 'specificExam', 'pid', 'course', 'slug', 'url'],
     skip: 0,
     limit: 50,
     ...extraBody,
@@ -887,7 +888,12 @@ async function fetchTestsFromLMS(adminToken, extraBody = {}) {
     body: JSON.stringify(body),
   });
   const tests = Array.isArray(data?.data?.tests) ? data.data.tests : [];
-  return tests.filter(t => t._id && t.title && t.title.trim());
+  return tests
+    .filter(t => t._id && t.title && t.title.trim())
+    .map(t => ({
+      ...t,
+      _resolvedLink: t.url || (t.slug ? `https://testbook.com/${t.slug}` : `https://testbook.com/take-test/${t._id}`),
+    }));
 }
 
 async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, subjectHints = [], subjectId = '', weakTopic = '') {
@@ -910,7 +916,7 @@ async function getRecommendedTestsFromLMS(adminToken, targetId, specificExamId, 
       const candidates = rawTests.map(t => ({
         id: t._id,
         title: t.title,
-        link: `https://testbook.com/view/tests/${t._id}`,
+        link: t._resolvedLink || `https://testbook.com/take-test/${t._id}`,
         score: scoreTestAgainstHints(t, Array.isArray(subjectHints) ? subjectHints : [])
       }));
 
@@ -1690,7 +1696,7 @@ app.get('/api/ssc-cgl-tests', async (req, res) => {
     const seen = new Set();
     const tests = allRaw
       .filter(t => { if (seen.has(t._id)) return false; seen.add(t._id); return true; })
-      .map(t => ({ id: t._id, title: t.title, link: `https://testbook.com/view/tests/${t._id}` }));
+      .map(t => ({ id: t._id, title: t.title, link: t._resolvedLink || `https://testbook.com/take-test/${t._id}` }));
     console.log(`[API] ssc-cgl-tests total returned:`, tests.length);
     return res.json({ success: true, data: tests });
   } catch (e) {
