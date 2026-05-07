@@ -23,7 +23,12 @@
       "Bash(curl -s -H \"sec-fetch-site: same-origin\" \"http://localhost:3001/api/session\" -c /tmp/cookies.txt -b /tmp/cookies.txt)",
       "Bash(curl -s -H \"sec-fetch-site: same-origin\" -b /tmp/cookies.txt \"http://localhost:3001/api/debug-lms-tests\")",
       "Bash(node backend/debug-lms.cjs)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node server.cjs)",
+      "PowerShell(Get-Process -Id \\(Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue\\).OwningProcess -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Write-Output \"Port 3001 cleared\")",
+      "Bash(netstat -ano)",
+      "Bash(curl -s -X POST http://localhost:3001/api/events -H \"Content-Type: application/json\" -d '{\"userId\":\"test\",\"eventName\":\"test\",\"page\":\"test\"}')",
+      "PowerShell(Stop-Process -Id 28500 -Force)"
     ]
   }
 }
