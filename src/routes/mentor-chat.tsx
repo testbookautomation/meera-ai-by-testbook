@@ -732,52 +732,22 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
   const displayTests = userTests.length > 0 ? userTests : allCglTests;
 
   return (
-    <div className="space-y-3">
-      <p className="text-[13px] font-semibold text-[#1e293b]">
-        Top performers on Testbook follow a simple system:
-      </p>
-
-      <div className="space-y-1">
-        {["Regular full-length mocks", "Sectional tests for weak areas", "Detailed performance analysis"].map((f) => (
-          <div key={f} className="flex items-center gap-2">
-            <span className="text-emerald-500 font-black">✅</span>
-            <p className="text-[13px] font-semibold text-[#1e293b]">{f}</p>
-          </div>
-        ))}
-      </div>
-
+    <div className="space-y-2.5">
       <p className="text-[13px] font-semibold text-[#475569]">
-        That's exactly what our <span className="font-black text-[#2563eb]">SSC CGL Test Series</span> helps you do 👇
+        Our <span className="font-black text-[#2563eb]">SSC CGL Test Series</span> — built to help you crack it 👇
       </p>
-
-      <div className="grid grid-cols-2 gap-1.5">
-        {[
-          "Full-length mocks based on latest pattern",
-          "Sectional + topic-wise tests",
-          "Rank + percentile vs lakhs of students",
-          "AI-based analysis (I'll guide you after every test)",
-        ].map((f) => (
-          <div key={f} className="flex items-start gap-1.5 rounded-lg bg-blue-50 border border-blue-100 px-2 py-1.5">
-            <span className="text-[#2563eb] text-xs mt-px font-black">●</span>
-            <p className="text-[10px] font-semibold text-[#334155] leading-snug">{f}</p>
-          </div>
-        ))}
-      </div>
 
       {loadingTests ? (
-        <div className="flex items-center justify-center gap-2 py-4">
+        <div className="flex items-center gap-2 py-2">
           <Loader2 className="h-4 w-4 animate-spin text-[#2563eb]" />
-          <p className="text-[12px] font-semibold text-[#475569]">Fetching SSC CGL tests…</p>
+          <p className="text-[12px] font-semibold text-[#475569]">Fetching tests…</p>
         </div>
       ) : displayTests.length > 0 ? (
-        <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+        <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
           {displayTests.map((test) => (
             <a key={test.url} href={test.url} target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-black text-[#111f45]">{test.title}</p>
-                <p className="text-[10px] font-semibold text-[#2563eb]">{test.tag}</p>
-              </div>
+              className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]">
+              <p className="truncate text-[12px] font-black text-[#111f45] flex-1">{test.title}</p>
               <div className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2.5 py-1 text-[11px] font-black text-white">
                 Start <ArrowRight className="h-3 w-3" />
               </div>
@@ -786,14 +756,10 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
         </div>
       ) : (
         <a href="https://testbook.com/ssc-cgl/test-series/my?hideBreadcrumbs=false" target="_blank" rel="noopener noreferrer"
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-3 text-[14px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
           👉 Start SSC CGL Test Series <ArrowRight className="h-4 w-4" />
         </a>
       )}
-
-      <p className="text-[13px] font-semibold text-[#475569]">
-        👉 Want me to create your <span className="font-black text-[#2563eb]">personalized test plan</span> and get you started?
-      </p>
     </div>
   );
 }
