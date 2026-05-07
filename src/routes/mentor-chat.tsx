@@ -55,8 +55,8 @@ interface Message {
 }
 
 const DEFAULT_SUGGESTIONS = [
-  "Can you give me my report in PDF?",
   "What are my recommended tests?",
+  "Can you give me my report in PDF?",
   "Analyze my weak topics in detail",
   "Give me a 7-day study sprint",
 ];
@@ -219,9 +219,9 @@ function buildSuggestionTabs(query: string, analysis?: any) {
     pushUnique(chips, `Fix ${secondWeakTopic}`);
     pushUnique(chips, "Set daily targets");
   } else {
+    pushUnique(chips, "Recommend a test");
     pushUnique(chips, `Drill ${weakTopic}`);
     pushUnique(chips, "Show weak topics");
-    pushUnique(chips, "Recommend a test");
     pushUnique(chips, "Give me a 7-day study sprint");
   }
 
@@ -485,6 +485,22 @@ function getRecommendedTests(weakTopics: any[]): { title: string; tag: string; u
     }
   }
   return results;
+}
+
+function getZoneLabel(score: number): string {
+  const readiness = Math.round(((score - 6) / 12) * 70) + 8;
+  if (readiness >= 70) return "Green Zone";
+  if (readiness >= 40) return "Caution Zone";
+  return "Danger Zone";
+}
+
+function getRecQuestionText(score: number): string {
+  const readiness = Math.round(((score - 6) / 12) * 70) + 8;
+  if (readiness >= 70) {
+    return "Want me to recommend you the **best mock test** to increase your **selection chances**? 🎯";
+  }
+  const zone = readiness >= 40 ? "Caution Zone" : "Danger Zone";
+  return `Want me to recommend you the **best mock test** to get you out of **${zone}**? 🎯`;
 }
 
 // ─── FomoCard (Flow 3 — insight reveal only) ────────────────────────────────
@@ -963,7 +979,7 @@ function MentorChatPage() {
           setMessages((prev) => [...prev, { id: "fomo-card", from: "bot" as const, text: " ", timestamp: new Date(), showFomo: true, fomoScore: sc }]);
         });
         safeInject(2400, () => {
-          setMessages((prev) => [...prev, { id: "rec-question", from: "bot" as const, text: "Want me to recommend the **best mock tests** for you based on your weak areas? 🎯", timestamp: new Date() }]);
+          setMessages((prev) => [...prev, { id: "rec-question", from: "bot" as const, text: getRecQuestionText(sc), timestamp: new Date() }]);
         });
       }
     };
@@ -1259,7 +1275,11 @@ function MentorChatPage() {
     const responseStartedAt = Date.now();
 
     // ── Test link intercept ──────────────────────────────────────────────────
-    const isTestLinkRequest = /recommend|test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct|link)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test|mock\s*test|attempt\s*karo|kya\s*attempt|testbook\s*link|test\s*series|ssc\s*cgl\s*test/i.test(userText);
+    const lastBotMsg = [...conversationHistory].reverse().find(m => m.from === "bot")?.text || "";
+    const isAffirmative = /^(yes|haan|ha|sure|ok|okay|yep|yup|bilkul|haa|yeah|do it|show me|show|kar do|batao|recommend karo)$/i.test(userText.trim());
+    const prevWasTestRecommend = /recommend.*test|best mock|mock test.*weak|weak.*test|get you out of/i.test(lastBotMsg);
+    const isTestLinkRequest = /recommend|test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct|link)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test|mock\s*test|attempt\s*karo|kya\s*attempt|testbook\s*link|test\s*series|ssc\s*cgl\s*test/i.test(userText)
+      || (isAffirmative && prevWasTestRecommend);
     if (isTestLinkRequest) {
       try {
         setIsTyping(true);
@@ -2204,7 +2224,7 @@ function MentorChatPage() {
             }, 400);
             const t2 = setTimeout(() => {
               if (!isMountedRef.current) return;
-              setMessages((prev) => [...prev, { id: `rec-question-${Date.now()}`, from: "bot" as const, text: "Want me to recommend the **best mock tests** for you based on your weak areas? 🎯", timestamp: new Date() }]);
+              setMessages((prev) => [...prev, { id: `rec-question-${Date.now()}`, from: "bot" as const, text: getRecQuestionText(score), timestamp: new Date() }]);
             }, 2000);
             injectTimeoutsRef.current.push(t1, t2);
           }}
