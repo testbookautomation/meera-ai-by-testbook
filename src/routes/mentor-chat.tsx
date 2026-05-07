@@ -652,8 +652,20 @@ function FomoCard({ score }: { score: number }) {
 
 // ─── RecommendedTestsCard ────────────────────────────────────────────────────
 
+const FALLBACK_SSC_CGL_TESTS = [
+  { title: "SSC CGL Full Mock Test – Tier 1", label: "Full Mock" },
+  { title: "Quantitative Aptitude Practice Set", label: "Maths" },
+  { title: "English Language & Comprehension", label: "English" },
+  { title: "General Intelligence & Reasoning", label: "Reasoning" },
+  { title: "General Awareness – Current Affairs", label: "GA" },
+];
+
 function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; link: string }[]; weakTopics: string[] }) {
-  const FIND_MORE_URL = "https://link.testbook.com/Meera";
+  const MEERA_URL = "https://link.testbook.com/Meera";
+
+  const displayTests = tests.length > 0
+    ? tests.map(t => ({ title: t.title, label: "Start" }))
+    : FALLBACK_SSC_CGL_TESTS;
 
   return (
     <div className="space-y-3">
@@ -673,34 +685,26 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
       )}
 
       {/* Test list */}
-      {tests.length > 0 ? (
-        <>
-          <p className="text-[12px] font-semibold text-[#475569]">
-            {weakTopics.length > 0 ? "Best tests based on your weak areas:" : "Recommended SSC CGL tests for you:"}
-          </p>
-          <div className="space-y-2">
-            {tests.map((test, i) => (
-              <a key={test.link} href={test.link} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:brightness-[1.02] active:scale-[0.98]">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-[11px] font-black text-white shadow-sm">
-                  {i + 1}
-                </div>
-                <p className="flex-1 text-[13px] font-black text-[#111f45] leading-snug">{test.title}</p>
-                <div className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2.5 py-1 text-[11px] font-black text-white">
-                  Start <ArrowRight className="h-3 w-3" />
-                </div>
-              </a>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="text-[13px] font-semibold text-[#475569]">
-          Tap below to browse all available SSC CGL tests on Testbook.
-        </p>
-      )}
+      <p className="text-[12px] font-semibold text-[#475569]">
+        {weakTopics.length > 0 ? "Best tests based on your weak areas:" : "Recommended SSC CGL tests for you:"}
+      </p>
+      <div className="space-y-2">
+        {displayTests.map((test, i) => (
+          <a key={i} href={MEERA_URL} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:brightness-[1.02] active:scale-[0.98]">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-[11px] font-black text-white shadow-sm">
+              {i + 1}
+            </div>
+            <p className="flex-1 text-[13px] font-black text-[#111f45] leading-snug">{test.title}</p>
+            <div className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2.5 py-1 text-[11px] font-black text-white">
+              Start <ArrowRight className="h-3 w-3" />
+            </div>
+          </a>
+        ))}
+      </div>
 
       {/* Find More button — always visible */}
-      <a href={FIND_MORE_URL} target="_blank" rel="noopener noreferrer"
+      <a href={MEERA_URL} target="_blank" rel="noopener noreferrer"
         className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-2.5 text-[13px] font-black text-white shadow-md transition-all hover:brightness-105 active:scale-[0.98]">
         🔍 Find More Tests <ArrowRight className="h-3.5 w-3.5" />
       </a>
