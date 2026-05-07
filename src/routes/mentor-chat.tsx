@@ -984,15 +984,8 @@ function MentorChatPage() {
         safeInject(1200, () => {
           setMessages((prev) => [...prev, { id: "fomo-card", from: "bot" as const, text: " ", timestamp: new Date(), showFomo: true, fomoScore: sc }]);
         });
-        safeInject(2800, () => {
-          setMessages((prev) => [...prev, { id: "pitch-card", from: "bot" as const, text: " ", timestamp: new Date(), showPitch: true }]);
-          fetch(`/api/recommended-tests/${encodeURIComponent(effectiveUid)}`)
-            .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-            .then((p) => { if (isMountedRef.current && p.success && Array.isArray(p.data) && p.data.length > 0) setRecommendedTests(p.data); })
-            .catch((e) => { console.warn("[Meera] Recommended tests fetch failed:", e.message); });
-        });
-        safeInject(4200, () => {
-          setMessages((prev) => [...prev, { id: "trigger-msg", from: "bot" as const, text: "Also — students who start mocks early improve their score by **15–25 marks** on average.\n\nYou don't need more studying. You need **smarter practice.** 🔥", timestamp: new Date() }]);
+        safeInject(2400, () => {
+          setMessages((prev) => [...prev, { id: "rec-question", from: "bot" as const, text: "Want me to recommend the **best mock tests** for you based on your weak areas? 🎯", timestamp: new Date() }]);
         });
       }
     };
@@ -2216,17 +2209,9 @@ function MentorChatPage() {
             }, 400);
             const t2 = setTimeout(() => {
               if (!isMountedRef.current) return;
-              setMessages((prev) => [...prev, { id: `pitch-${Date.now()}`, from: "bot" as const, text: " ", timestamp: new Date(), showPitch: true }]);
-              fetch(`/api/recommended-tests/${encodeURIComponent(userid)}`)
-                .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-                .then((p) => { if (isMountedRef.current && p.success && Array.isArray(p.data) && p.data.length > 0) setRecommendedTests(p.data); })
-                .catch((e) => { console.warn("[Meera] Recommended tests fetch failed:", e.message); });
+              setMessages((prev) => [...prev, { id: `rec-question-${Date.now()}`, from: "bot" as const, text: "Want me to recommend the **best mock tests** for you based on your weak areas? 🎯", timestamp: new Date() }]);
             }, 2000);
-            const t3 = setTimeout(() => {
-              if (!isMountedRef.current) return;
-              setMessages((prev) => [...prev, { id: `trigger-${Date.now()}`, from: "bot" as const, text: "Also — students who start mocks early improve their score by **15–25 marks** on average.\n\nYou don't need more studying. You need **smarter practice.** 🔥", timestamp: new Date() }]);
-            }, 3400);
-            injectTimeoutsRef.current.push(t1, t2, t3);
+            injectTimeoutsRef.current.push(t1, t2);
           }}
         />
       )}
