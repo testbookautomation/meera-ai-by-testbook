@@ -653,7 +653,7 @@ function FomoCard({ score }: { score: number }) {
 // ─── RecommendedTestsCard ────────────────────────────────────────────────────
 
 function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; link: string }[]; weakTopics: string[] }) {
-  const FIND_MORE_URL = "https://testbook.com/ssc-cgl/test-series/my?hideBreadcrumbs=false";
+  const FIND_MORE_URL = "https://link.testbook.com/Meera";
 
   return (
     <div className="space-y-3">
@@ -1262,16 +1262,25 @@ function MentorChatPage() {
         setLoadingStage("typing");
 
         let tests: { title: string; link: string }[] = [];
-        const recRes = await fetch(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`);
-        const recData = await recRes.json();
-        if (recData.success && Array.isArray(recData.data) && recData.data.length > 0) {
-          tests = recData.data;
-        } else {
-          const cglRes = await fetch("/api/ssc-cgl-tests");
-          const cglData = await cglRes.json();
-          if (cglData.success && Array.isArray(cglData.data)) {
-            tests = cglData.data.slice(0, 5);
-          }
+
+        // Always fetch both in parallel — use personalised first, fall back to all CGL tests
+        const [recRes, cglRes] = await Promise.all([
+          fetch(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`).then(r => r.json()).catch(() => ({ success: false, data: [] })),
+          fetch("/api/ssc-cgl-tests").then(r => r.json()).catch(() => ({ success: false, data: [] })),
+        ]);
+
+        if (recRes.success && Array.isArray(recRes.data) && recRes.data.length > 0) {
+          tests = recRes.data.slice(0, 5);
+        } else if (cglRes.success && Array.isArray(cglRes.data) && cglRes.data.length > 0) {
+          // Filter by weak topics first, fall back to first 5
+          const weakTopicsLower = (userData?.latestAnalysis?.weakTopics || [])
+            .map((t: any) => (t?.topic || t?.name || t || "").toLowerCase());
+          const scored = (cglRes.data as { title: string; link: string }[]).map(t => ({
+            ...t,
+            score: weakTopicsLower.filter((w: string) => w && t.title.toLowerCase().includes(w)).length,
+          }));
+          const sorted = [...scored].sort((a, b) => b.score - a.score);
+          tests = sorted.slice(0, 5).map(({ title, link }) => ({ title, link }));
         }
 
         if (!isMountedRef.current || stopRequestedRef.current || responseRunIdRef.current !== runId) return;
