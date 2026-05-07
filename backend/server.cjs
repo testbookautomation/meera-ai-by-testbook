@@ -1706,16 +1706,42 @@ app.get('/api/recommended-tests/:userid', async (req, res) => {
   }
 });
 
-// ── SSC CGL TEST SERIES LINK from LMS ───────────────────────────────────────
+// ── ALL SSC CGL TESTS from LMS ───────────────────────────────────────────────
 app.get('/api/ssc-cgl-tests', async (req, res) => {
   try {
     const adminToken = await adminLogin();
     const SSC_CGL_TARGET_ID = '5e6189da5f66e94f14a21f58';
-    const hints = ['SSC CGL', 'CGL', 'Tier 1', 'full length mock'];
-    let recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', hints, '', 'SSC CGL');
-    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, SSC_CGL_TARGET_ID, '', [], '', '');
-    if (recs.length === 0) recs = await getRecommendedTestsFromLMS(adminToken, '', '', hints, '', 'CGL');
-    return res.json({ success: true, data: recs.slice(0, 5) });
+
+    const fetchPage = async (skip) => {
+      const params = new URLSearchParams({
+        language: 'All',
+        fields: '_id,title,stage',
+        role: 'admin',
+        skip: String(skip),
+        limit: '100',
+        stage: 'freeze',
+        targetIds: SSC_CGL_TARGET_ID,
+      });
+      const url = `https://lms-api.testbook.com/api/v2/admin/tests/get?${params.toString()}`;
+      const data = await fetchJsonWithRetry(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${adminToken}`, 'x-tb-client': 'lms,1.0' },
+      });
+      const list = Array.isArray(data?.data?.tests) ? data.data.tests : Array.isArray(data?.data) ? data.data : [];
+      return list;
+    };
+
+    // Fetch first two pages (up to 200 tests)
+    const [page1, page2] = await Promise.all([fetchPage(0), fetchPage(100)]);
+    const allRaw = [...page1, ...page2];
+
+    const seen = new Set();
+    const tests = allRaw
+      .filter(t => t._id && t.title)
+      .filter(t => { if (seen.has(t._id)) return false; seen.add(t._id); return true; })
+      .map(t => ({ id: t._id, title: t.title, link: `https://testbook.com/view/tests/${t._id}` }));
+
+    return res.json({ success: true, data: tests });
   } catch (e) {
     console.error('[API] ssc-cgl-tests failed:', e.message);
     return res.json({ success: true, data: [] });

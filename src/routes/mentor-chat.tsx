@@ -15,19 +15,17 @@ import {
   Menu,
   History,
   Download,
-  Volume2,
-  VolumeX,
   MessageSquare,
   BookOpen,
   GraduationCap,
   Languages,
+  Loader2,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { installGlobalEventTracking, trackEvent } from "../utils/tracking";
 import { sendAiMentorMessage } from "@/services/aiMentorApi";
 import { fetchLmsAnalysis } from "@/services/lmsApi";
 import { openRazorpayCheckout } from "@/services/razorpay";
-import { synthesizeSpeech } from "@/services/ttsApi";
 
 type SearchParams = { userid?: string };
 
@@ -69,7 +67,6 @@ const MEERA_EXIT_AVATAR_URL =
   "https://cdn.testbook.com/1777531366276-ChatGPT%20Image%20Apr%2030%2C%202026%2C%2012_11_29%20PM%20%282%29.png/1777531367.png";
 
 const MAX_RESPONSE_TEXT_CHARS = 9000;
-const MAX_VOICE_TEXT_CHARS = 1400;
 const STREAM_WORDS_PER_TICK = 8;
 const STREAM_TICK_MS = 45;
 
@@ -233,18 +230,6 @@ function buildSuggestionTabs(query: string, analysis?: any) {
   return chips.slice(0, 4);
 }
 
-function cleanTextForVoice(text: string) {
-  const cleaned = String(text || "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/[`*_>#|~]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return cleaned.length > MAX_VOICE_TEXT_CHARS
-    ? `${cleaned.slice(0, MAX_VOICE_TEXT_CHARS).trim()}...`
-    : cleaned;
-}
 
 function normalizeResponseText(text: string) {
   const normalized = String(text || "").trim();
@@ -666,22 +651,25 @@ function FomoCard({ score }: { score: number }) {
 // ─── PitchCard (Flow 4 — smart pitch, conversational) ───────────────────────
 
 function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[]; weakTopics?: any[]; userid?: string }) {
-  const tests = (lmsTests && lmsTests.length > 0)
+  const userTests = (lmsTests && lmsTests.length > 0)
     ? lmsTests.map((t) => ({ title: t.title, tag: "Recommended by Meera", url: t.link }))
     : [];
-  const [cglTestUrl, setCglTestUrl] = useState<string>("https://testbook.com/ssc-cgl-exam");
+  const [allCglTests, setAllCglTests] = useState<{ title: string; tag: string; url: string }[]>([]);
+  const [loadingTests, setLoadingTests] = useState(true);
 
   useEffect(() => {
-    if (tests.length > 0) return;
     fetch("/api/ssc-cgl-tests")
       .then((r) => r.json())
       .then((p) => {
         if (p.success && Array.isArray(p.data) && p.data.length > 0) {
-          setCglTestUrl(p.data[0].link);
+          setAllCglTests(p.data.map((t: { title: string; link: string }) => ({ title: t.title, tag: "SSC CGL Test Series", url: t.link })));
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoadingTests(false));
   }, []);
+
+  const displayTests = userTests.length > 0 ? userTests : allCglTests;
 
   return (
     <div className="space-y-3">
@@ -716,10 +704,15 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
         ))}
       </div>
 
-      {tests.length > 0 ? (
-        <div className="space-y-2">
-          {tests.map((test) => (
-            <a key={test.title} href={test.url} target="_blank" rel="noopener noreferrer"
+      {loadingTests ? (
+        <div className="flex items-center justify-center gap-2 py-4">
+          <Loader2 className="h-4 w-4 animate-spin text-[#2563eb]" />
+          <p className="text-[12px] font-semibold text-[#475569]">Fetching SSC CGL tests…</p>
+        </div>
+      ) : displayTests.length > 0 ? (
+        <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+          {displayTests.map((test) => (
+            <a key={test.url} href={test.url} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-black text-[#111f45]">{test.title}</p>
@@ -732,7 +725,7 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
           ))}
         </div>
       ) : (
-        <a href={cglTestUrl} target="_blank" rel="noopener noreferrer"
+        <a href="https://testbook.com/ssc-cgl-exam" target="_blank" rel="noopener noreferrer"
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] py-3 text-[14px] font-black text-white shadow-lg shadow-blue-700/20 transition-all hover:brightness-105 active:scale-[0.98]">
           👉 Start SSC CGL Test Series <ArrowRight className="h-4 w-4" />
         </a>
@@ -826,16 +819,12 @@ function MentorChatPage() {
   const [showCancelPopup, setShowCancelPopup] = useState(false);
   const [showQuestionnaire, setShowQuestionnaire] = useState(false);
   const [recommendedTests, setRecommendedTests] = useState<{ title: string; link: string }[]>([]);
-  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [loadingStage, setLoadingStage] = useState<
     "thinking" | "typing" | null
   >(null);
   const [responseLanguage, setResponseLanguage] =
     useState<LanguageCode>("english");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
-  const voiceAbortControllerRef = useRef<AbortController | null>(null);
-  const speakingIdRef = useRef<string | null>(null);
   const hasUserInteractedRef = useRef(false);
   const thoughtIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
@@ -855,178 +844,11 @@ function MentorChatPage() {
     useridRef.current = userid;
   }, [userid]);
 
-  useEffect(() => {
-    speakingIdRef.current = speakingId;
-  }, [speakingId]);
-
   useEffect(
     () => installGlobalEventTracking(() => useridRef.current, "mentor_chat"),
     [],
   );
 
-  const stopVoiceOutput = (eventName = "ai_voice_stopped") => {
-    const activeMessageId = speakingIdRef.current;
-    voiceAbortControllerRef.current?.abort();
-    voiceAbortControllerRef.current = null;
-
-    if (voiceAudioRef.current) {
-      voiceAudioRef.current.pause();
-      voiceAudioRef.current.currentTime = 0;
-      voiceAudioRef.current = null;
-    }
-    window.speechSynthesis?.cancel();
-
-    speakingIdRef.current = null;
-    setSpeakingId(null);
-    if (activeMessageId) {
-      trackEvent(useridRef.current, eventName, "mentor_chat", {
-        messageId: activeMessageId,
-      });
-    }
-  };
-
-  const speakWithBrowserVoiceFallback = (
-    voiceText: string,
-    msgId: string,
-    auto: boolean,
-    reason: string,
-  ) => {
-    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-      return false;
-    }
-
-    const utterance = new SpeechSynthesisUtterance(voiceText);
-    utterance.lang = responseLanguage === "hindi" ? "hi-IN" : "en-IN";
-
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice =
-      voices.find(
-        (voice) =>
-          voice.name.includes("Google") &&
-          (voice.lang.includes("hi") || voice.lang.includes("en-IN")),
-      ) || voices.find((voice) => voice.lang === utterance.lang);
-    if (preferredVoice) utterance.voice = preferredVoice;
-
-    speakingIdRef.current = msgId;
-    setSpeakingId(msgId);
-    utterance.onend = () => {
-      speakingIdRef.current = null;
-      if (isMountedRef.current) setSpeakingId(null);
-      trackEvent(useridRef.current, "ai_voice_finished", "mentor_chat", {
-        messageId: msgId,
-        fallback: true,
-      });
-    };
-    utterance.onerror = () => {
-      speakingIdRef.current = null;
-      if (isMountedRef.current) setSpeakingId(null);
-      trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
-        messageId: msgId,
-        fallback: true,
-      });
-    };
-
-    trackEvent(
-      useridRef.current,
-      "ai_voice_browser_fallback_started",
-      "mentor_chat",
-      {
-        messageId: msgId,
-        auto,
-        reason,
-      },
-    );
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-    return true;
-  };
-
-  const speakText = async (text: string, msgId: string, auto = false) => {
-    if (speakingIdRef.current === msgId) {
-      stopVoiceOutput();
-      return;
-    }
-
-    stopVoiceOutput("ai_voice_replaced");
-
-    const voiceText = cleanTextForVoice(text);
-    if (!voiceText) return;
-
-    const abortController = new AbortController();
-    voiceAbortControllerRef.current = abortController;
-    speakingIdRef.current = msgId;
-    setSpeakingId(msgId);
-    trackEvent(
-      useridRef.current,
-      auto ? "ai_voice_auto_started" : "ai_voice_started",
-      "mentor_chat",
-      {
-        messageId: msgId,
-        textLength: voiceText.length,
-        responseLanguage,
-      },
-    );
-
-    try {
-      const audioData = await synthesizeSpeech({
-        text: voiceText,
-        responseLanguage,
-        signal: abortController.signal,
-      });
-
-      if (abortController.signal.aborted || !isMountedRef.current) return;
-      if (!audioData?.mimeType || !audioData?.audioContent) {
-        throw new Error("Invalid TTS response");
-      }
-
-      const player = new Audio(
-        `data:${audioData.mimeType};base64,${audioData.audioContent}`,
-      );
-      voiceAudioRef.current = player;
-      player.onended = () => {
-        voiceAudioRef.current = null;
-        voiceAbortControllerRef.current = null;
-        speakingIdRef.current = null;
-        if (isMountedRef.current) setSpeakingId(null);
-        trackEvent(useridRef.current, "ai_voice_finished", "mentor_chat", {
-          messageId: msgId,
-        });
-      };
-      player.onerror = () => {
-        voiceAudioRef.current = null;
-        voiceAbortControllerRef.current = null;
-        speakingIdRef.current = null;
-        if (isMountedRef.current) setSpeakingId(null);
-        trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
-          messageId: msgId,
-        });
-      };
-
-      await player.play().catch((err) => {
-        // Autoplay blocked — fall through to browser voice fallback
-        throw err;
-      });
-    } catch (error) {
-      if (abortController.signal.aborted || !isMountedRef.current) return;
-
-      const message = error instanceof Error ? error.message : "unknown";
-      if (speakWithBrowserVoiceFallback(voiceText, msgId, auto, message)) {
-        voiceAbortControllerRef.current = null;
-        voiceAudioRef.current = null;
-        return;
-      }
-
-      voiceAbortControllerRef.current = null;
-      voiceAudioRef.current = null;
-      speakingIdRef.current = null;
-      setSpeakingId(null);
-      trackEvent(useridRef.current, "ai_voice_error", "mentor_chat", {
-        messageId: msgId,
-        auto,
-        error: message,
-      });
-    }
-  };
 
   const [activeSuggestions, setActiveSuggestions] =
     useState(DEFAULT_SUGGESTIONS);
@@ -1209,8 +1031,6 @@ function MentorChatPage() {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       responseAbortControllerRef.current?.abort();
-      voiceAbortControllerRef.current?.abort();
-      voiceAudioRef.current?.pause();
       // Clear all inject card timeouts
       injectTimeoutsRef.current.forEach((t) => clearTimeout(t));
       injectTimeoutsRef.current = [];
@@ -1278,7 +1098,6 @@ function MentorChatPage() {
 
     const msgText = textToSend || input;
     if (!msgText.trim()) return;
-    stopVoiceOutput();
 
     if (!isPro && messageCount >= 3) {
       trackEvent(userid, "paywall_shown", "mentor_chat", {
@@ -1391,7 +1210,6 @@ function MentorChatPage() {
 
     responseAbortControllerRef.current?.abort();
     responseAbortControllerRef.current = null;
-    stopVoiceOutput();
 
     setIsTyping(false);
     setIsStreaming(false);
@@ -1408,6 +1226,72 @@ function MentorChatPage() {
     runId: number,
   ) => {
     const responseStartedAt = Date.now();
+
+    // ── Test link intercept ──────────────────────────────────────────────────
+    const isTestLinkRequest = /test\s*link|direct\s*(testbook\s*)?link|give\s*me\s*(the\s*)?(test|mock|direct)|recommended\s*test|fetch\s*test|show\s*(me\s*)?test/i.test(userText);
+    if (isTestLinkRequest) {
+      try {
+        setIsTyping(true);
+        setLoadingStage("typing");
+        // Try user-specific recommended tests first
+        let tests: { title: string; link: string }[] = [];
+        const recRes = await fetch(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`);
+        const recData = await recRes.json();
+        if (recData.success && Array.isArray(recData.data) && recData.data.length > 0) {
+          tests = recData.data;
+        } else {
+          // Fall back to all SSC CGL tests
+          const cglRes = await fetch("/api/ssc-cgl-tests");
+          const cglData = await cglRes.json();
+          if (cglData.success && Array.isArray(cglData.data)) {
+            tests = cglData.data.slice(0, 10);
+          }
+        }
+
+        if (!isMountedRef.current || stopRequestedRef.current || responseRunIdRef.current !== runId) return;
+
+        let responseText = "";
+        if (tests.length > 0) {
+          responseText = "Here are your SSC CGL tests from Testbook — tap **Start** to begin:\n\n" +
+            tests.map((t) => `[${t.title}](${t.link})`).join("\n\n");
+        } else {
+          responseText = "I couldn't fetch your test links right now. Please try again in a moment, or [browse SSC CGL tests here](https://testbook.com/ssc-cgl-exam).";
+        }
+
+        const botMsgId = Math.random().toString();
+        setIsStreaming(true);
+        setMessages((prev) => [...prev, { id: botMsgId, from: "bot" as const, text: "", timestamp: new Date() }]);
+
+        let currentText = "";
+        let index = 0;
+        const words = responseText.split(" ");
+        streamIntervalRef.current = setInterval(() => {
+          if (stopRequestedRef.current || responseRunIdRef.current !== runId) {
+            if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+            return;
+          }
+          if (index < words.length) {
+            const nextWords = words.slice(index, index + STREAM_WORDS_PER_TICK);
+            currentText += (index === 0 ? "" : " ") + nextWords.join(" ");
+            setMessages((prev) => prev.map((m) => m.id === botMsgId ? { ...m, text: currentText } : m));
+            index += STREAM_WORDS_PER_TICK;
+          } else {
+            if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+            streamIntervalRef.current = null;
+            setIsStreaming(false);
+            setIsTyping(false);
+            setLoadingStage(null);
+            setAiThoughts([]);
+          }
+        }, STREAM_TICK_MS);
+        return;
+      } catch (e) {
+        // Fall through to normal AI response on error
+      }
+    }
+    // ── End test link intercept ──────────────────────────────────────────────
+
     try {
       setIsTyping(true);
       setLoadingStage("typing");
@@ -1485,7 +1369,6 @@ function MentorChatPage() {
             wordCount: words.length,
             durationMs: Date.now() - responseStartedAt,
           });
-          if (hasUserInteractedRef.current) void speakText(fullText, botMsgId, true);
         }
       }, STREAM_TICK_MS);
     } catch (error: any) {
@@ -2099,19 +1982,6 @@ function MentorChatPage() {
                         minute: "2-digit",
                       })}
                     </span>
-                    {msg.from === "bot" && msg.text.trim() && (
-                      <button
-                        onClick={() => void speakText(msg.text, msg.id)}
-                        className={`flex items-center gap-1 text-[10px] font-semibold transition-colors ${speakingId === msg.id ? "animate-pulse text-[#2563eb]" : "text-slate-400 hover:text-slate-600"}`}
-                      >
-                        {speakingId === msg.id ? (
-                          <VolumeX className="h-3 w-3" />
-                        ) : (
-                          <Volume2 className="h-3 w-3" />
-                        )}
-                        {speakingId === msg.id ? "Stop" : "Listen"}
-                      </button>
-                    )}
                   </div>
                   )}
                 </div>
