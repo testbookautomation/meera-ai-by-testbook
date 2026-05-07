@@ -2271,6 +2271,15 @@ function MentorChatPage() {
               >
                 Maybe later
               </button>
+              <button
+                onClick={() => {
+                  trackEvent(userid, "paywall_talk_more_clicked", "mentor_chat", { messageCount });
+                  setShowPaywall(false);
+                }}
+                className="w-full text-center text-xs font-bold text-[#2563eb] hover:text-[#1d4ed8] py-1 transition-colors"
+              >
+                💬 Talk more with Meera
+              </button>
             </div>
           </div>
         </div>
