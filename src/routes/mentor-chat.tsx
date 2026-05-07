@@ -2186,8 +2186,9 @@ function MentorChatPage() {
           onComplete={(score) => {
             if (!isMountedRef.current) return;
             setShowQuestionnaire(false);
+            const readinessScore = Math.round(((score - 6) / 12) * 70) + 8;
             trackEvent(userid, "questionnaire_completed", "mentor_chat", {
-              survey_score: score,
+              survey_score: readinessScore,
               weak_topics: (userData?.latestAnalysis?.weakTopics || []).map((t: any) => t?.topic || t?.name || t).filter(Boolean).join(", "),
               test_name: userData?.latestAnalysis?.testName || "",
               accuracy: userData?.latestAnalysis?.accuracy ?? "",
