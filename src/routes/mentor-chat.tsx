@@ -674,10 +674,42 @@ function FomoCard({ score }: { score: number }) {
 
 const MEERA_URL = "https://link.testbook.com/Meera";
 
-function RecommendedTestsCard({ tests, weakTopics }: { tests: { id?: string; title: string; link: string }[]; weakTopics: string[] }) {
+type RecommendedTest = { id?: string; title: string; link: string };
+
+const FALLBACK_SSC_CGL_TESTS: RecommendedTest[] = [
+  {
+    id: "69f09ead4c67d3bec8f9874f",
+    title: "SSC CGL Advanced Full Test - 6",
+    link: "https://testbook.com/view/tests/69f09ead4c67d3bec8f9874f",
+  },
+  {
+    id: "69f09f673bc5ffad55717a3b",
+    title: "English Comprehension Advanced Sectional Test - 4",
+    link: "https://testbook.com/view/tests/69f09f673bc5ffad55717a3b",
+  },
+  {
+    id: "69f09f5c20043b8bc234565b",
+    title: "Quantitative Aptitude Advanced Sectional Test - 4",
+    link: "https://testbook.com/view/tests/69f09f5c20043b8bc234565b",
+  },
+  {
+    id: "69f09f54cb1bd71df7d1908b",
+    title: "General Awareness Advanced Sectional Test - 5",
+    link: "https://testbook.com/view/tests/69f09f54cb1bd71df7d1908b",
+  },
+  {
+    id: "69f09edfb3c72f57ffbb7993",
+    title: "General Awareness Sectional Test - 1",
+    link: "https://testbook.com/view/tests/69f09edfb3c72f57ffbb7993",
+  },
+];
+
+function RecommendedTestsCard({ tests, weakTopics }: { tests: RecommendedTest[]; weakTopics: string[] }) {
   const isMobile = useIsMobile();
-  const [displayTests, setDisplayTests] = useState<{ id?: string; title: string; link: string }[]>(tests);
-  const [loadingFallback, setLoadingFallback] = useState(tests.length === 0);
+  const [displayTests, setDisplayTests] = useState<RecommendedTest[]>(
+    tests.length > 0 ? tests : FALLBACK_SSC_CGL_TESTS,
+  );
+  const [loadingFallback, setLoadingFallback] = useState(false);
 
   useEffect(() => {
     if (tests.length > 0) {
@@ -685,16 +717,14 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { id?: string; tit
       setLoadingFallback(false);
       return;
     }
-    // Fetch real LMS tests when no personalized tests are available
-    setLoadingFallback(true);
-    requestJson<{ success: boolean; data: { id?: string; title: string; link: string }[] }>("/api/ssc-cgl-tests")
+    setDisplayTests(FALLBACK_SSC_CGL_TESTS);
+    requestJson<{ success: boolean; data: RecommendedTest[] }>("/api/ssc-cgl-tests")
       .then(res => {
         if (res.success && Array.isArray(res.data) && res.data.length > 0) {
           setDisplayTests(res.data.slice(0, 5));
         }
       })
-      .catch(() => {})
-      .finally(() => setLoadingFallback(false));
+      .catch(() => {});
   }, [tests]);
 
   return (
