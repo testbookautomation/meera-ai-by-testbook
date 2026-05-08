@@ -31,7 +31,8 @@ const DEFAULT_ORIGIN_PATTERNS = [
   /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i,
   /^https?:\/\/10\.\d+\.\d+\.\d+(?::\d+)?$/i,
   /^https:\/\/[a-z0-9-]+\.ngrok-free\.app$/i,
-  /^https:\/\/[a-z0-9-]+\.ngrok\.app$/i
+  /^https:\/\/[a-z0-9-]+\.ngrok\.app$/i,
+  /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i
 ];
 
 function isAllowedOrigin(origin) {
@@ -188,6 +189,10 @@ function issueAppSession(req, res) {
 }
 
 function requireAppSession(req, res, next) {
+  if (req.method === 'POST' && req.path === '/events') {
+    return next();
+  }
+
   const session = readSession(req);
   if (!session) {
     return res.status(401).json({ success: false, error: 'App session required.' });
@@ -220,6 +225,18 @@ function maskValue(value) {
   const text = String(value || '');
   if (text.length <= 4) return '***';
   return `${text.slice(0, 2)}***${text.slice(-2)}`;
+}
+
+function getConfiguredWebhookUrl() {
+  const rawUrl = String(process.env.WEBHOOK_URL || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!rawUrl) return '';
+
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch (e) {
+    return '';
+  }
 }
 
 const OPENAI_CHAT_API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -530,7 +547,7 @@ let cachedAdminTokenAt = 0;
 const ADMIN_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', ts: Date.now() });
+  res.json({ status: 'ok', ts: Date.now(), webhookConfigured: !!getConfiguredWebhookUrl() });
 });
 
 app.get('/', (req, res, next) => {
@@ -1226,7 +1243,7 @@ function buildCacheResponse(userid, userRow, analysisRows) {
 
 app.post('/api/events', async (req, res) => {
   try {
-    const webhookUrl = process.env.WEBHOOK_URL;
+    const webhookUrl = getConfiguredWebhookUrl();
 
     const event = {
       eventId: cleanText(req.body?.eventId, 100),
@@ -2412,7 +2429,12 @@ if (fs.existsSync(frontendClientPath) && fs.existsSync(frontendServerPath)) {
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3001;
-  app.listen(PORT, () => console.log(`Node.js SQL Backend running on http://localhost:${PORT}`));
+  app.listen(PORT, () => {
+    console.log(`Node.js SQL Backend running on http://localhost:${PORT}`);
+    if (!getConfiguredWebhookUrl()) {
+      console.warn('[Tracking] WEBHOOK_URL is not configured or is not a valid HTTPS URL. Events will be stored locally but not forwarded.');
+    }
+  });
 }
 
 module.exports = app;
