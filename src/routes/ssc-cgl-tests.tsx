@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { getTestLinkForDevice } from "@/utils/testLinks";
 
 type SearchParams = { userid?: string };
 
@@ -14,6 +16,7 @@ export const Route = createFileRoute("/ssc-cgl-tests")({
 function SscCglTestsPage() {
   const { userid } = Route.useSearch();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [tests, setTests] = useState<{ id: string; title: string; link: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,7 +66,7 @@ function SscCglTestsPage() {
             {tests.map((test) => (
               <a
                 key={test.id}
-                href={test.link}
+                href={getTestLinkForDevice(test, isMobile)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-xl border border-blue-100 bg-white px-4 py-3 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]"

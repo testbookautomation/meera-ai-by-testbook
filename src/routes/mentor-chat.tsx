@@ -27,6 +27,8 @@ import { sendAiMentorMessage } from "@/services/aiMentorApi";
 import { fetchLmsAnalysis } from "@/services/lmsApi";
 import { openRazorpayCheckout } from "@/services/razorpay";
 import { requestJson } from "@/services/http";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { getTestLinkForDevice } from "@/utils/testLinks";
 
 type SearchParams = { userid?: string };
 
@@ -52,7 +54,7 @@ interface Message {
   introTotalMarks?: number | null;
   showPitch?: boolean;
   showRecommendedTests?: boolean;
-  recommendedTestsData?: { tests: { title: string; link: string }[]; weakTopics: string[] };
+  recommendedTestsData?: { tests: { id?: string; title: string; link: string }[]; weakTopics: string[] };
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -672,8 +674,9 @@ function FomoCard({ score }: { score: number }) {
 
 const MEERA_URL = "https://link.testbook.com/Meera";
 
-function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; link: string }[]; weakTopics: string[] }) {
-  const [displayTests, setDisplayTests] = useState<{ title: string; link: string }[]>(tests);
+function RecommendedTestsCard({ tests, weakTopics }: { tests: { id?: string; title: string; link: string }[]; weakTopics: string[] }) {
+  const isMobile = useIsMobile();
+  const [displayTests, setDisplayTests] = useState<{ id?: string; title: string; link: string }[]>(tests);
   const [loadingFallback, setLoadingFallback] = useState(tests.length === 0);
 
   useEffect(() => {
@@ -684,7 +687,7 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
     }
     // Fetch real LMS tests when no personalized tests are available
     setLoadingFallback(true);
-    requestJson<{ success: boolean; data: { title: string; link: string }[] }>("/api/ssc-cgl-tests")
+    requestJson<{ success: boolean; data: { id?: string; title: string; link: string }[] }>("/api/ssc-cgl-tests")
       .then(res => {
         if (res.success && Array.isArray(res.data) && res.data.length > 0) {
           setDisplayTests(res.data.slice(0, 5));
@@ -721,7 +724,7 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
             <Loader2 className="h-5 w-5 animate-spin text-[#2563eb]" />
           </div>
         ) : displayTests.map((test, i) => (
-          <a key={i} href={test.link} target="_blank" rel="noopener noreferrer"
+          <a key={i} href={getTestLinkForDevice(test, isMobile)} target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-3 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50/60 px-3 py-2.5 transition-all hover:border-[#2563eb]/40 hover:brightness-[1.02] active:scale-[0.98]">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2563eb] to-[#4f46e5] text-[11px] font-black text-white shadow-sm">
               {i + 1}
@@ -745,18 +748,19 @@ function RecommendedTestsCard({ tests, weakTopics }: { tests: { title: string; l
 
 // ─── PitchCard (Flow 4 — smart pitch, conversational) ───────────────────────
 
-function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[]; weakTopics?: any[]; userid?: string }) {
+function PitchCard({ lmsTests }: { lmsTests?: { id?: string; title: string; link: string }[]; weakTopics?: any[]; userid?: string }) {
+  const isMobile = useIsMobile();
   const userTests = (lmsTests && lmsTests.length > 0)
-    ? lmsTests.map((t) => ({ title: t.title, tag: "Recommended by Meera", url: t.link }))
+    ? lmsTests.map((t) => ({ id: t.id, title: t.title, tag: "Recommended by Meera", url: t.link }))
     : [];
-  const [allCglTests, setAllCglTests] = useState<{ title: string; tag: string; url: string }[]>([]);
+  const [allCglTests, setAllCglTests] = useState<{ id?: string; title: string; tag: string; url: string }[]>([]);
   const [loadingTests, setLoadingTests] = useState(true);
 
   useEffect(() => {
-    requestJson<{ success: boolean; data: { title: string; link: string }[] }>("/api/ssc-cgl-tests")
+    requestJson<{ success: boolean; data: { id?: string; title: string; link: string }[] }>("/api/ssc-cgl-tests")
       .then((p) => {
         if (p.success && Array.isArray(p.data) && p.data.length > 0) {
-          setAllCglTests(p.data.map((t: { title: string; link: string }) => ({ title: t.title, tag: "SSC CGL Test Series", url: t.link })));
+          setAllCglTests(p.data.map((t: { id?: string; title: string; link: string }) => ({ id: t.id, title: t.title, tag: "SSC CGL Test Series", url: t.link })));
         }
       })
       .catch(() => {})
@@ -782,7 +786,7 @@ function PitchCard({ lmsTests }: { lmsTests?: { title: string; link: string }[];
       ) : displayTests.length > 0 ? (
         <div className="max-h-44 overflow-y-auto space-y-1.5 pr-0.5">
           {displayTests.map((test) => (
-            <a key={test.url} href={test.url} target="_blank" rel="noopener noreferrer"
+            <a key={test.url} href={getTestLinkForDevice(test, isMobile)} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-between rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 transition-all hover:border-[#2563eb]/40 hover:bg-blue-50 active:scale-[0.98]">
               <p className="truncate text-[12px] font-black text-[#111f45] flex-1">{test.title}</p>
               <div className="ml-2 flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-[#2563eb] to-[#4f46e5] px-2.5 py-1 text-[11px] font-black text-white">
@@ -1300,12 +1304,12 @@ function MentorChatPage() {
         setIsTyping(true);
         setLoadingStage("typing");
 
-        let tests: { title: string; link: string }[] = [];
+        let tests: { id?: string; title: string; link: string }[] = [];
 
         // Always fetch both in parallel — use personalised first, fall back to all CGL tests
         const [recRes, cglRes] = await Promise.all([
-          requestJson<{ success: boolean; data: { title: string; link: string }[] }>(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`).catch(() => ({ success: false, data: [] })),
-          requestJson<{ success: boolean; data: { title: string; link: string }[] }>("/api/ssc-cgl-tests").catch(() => ({ success: false, data: [] })),
+          requestJson<{ success: boolean; data: { id?: string; title: string; link: string }[] }>(`/api/recommended-tests/${encodeURIComponent(userid || "demo_user")}`).catch(() => ({ success: false, data: [] })),
+          requestJson<{ success: boolean; data: { id?: string; title: string; link: string }[] }>("/api/ssc-cgl-tests").catch(() => ({ success: false, data: [] })),
         ]);
 
         if (recRes.success && Array.isArray(recRes.data) && recRes.data.length > 0) {
@@ -1314,12 +1318,12 @@ function MentorChatPage() {
           // Filter by weak topics first, fall back to first 5
           const weakTopicsLower = (userData?.latestAnalysis?.weakTopics || [])
             .map((t: any) => (t?.topic || t?.name || t || "").toLowerCase());
-          const scored = (cglRes.data as { title: string; link: string }[]).map(t => ({
+          const scored = (cglRes.data as { id?: string; title: string; link: string }[]).map(t => ({
             ...t,
             score: weakTopicsLower.filter((w: string) => w && t.title.toLowerCase().includes(w)).length,
           }));
           const sorted = [...scored].sort((a, b) => b.score - a.score);
-          tests = sorted.slice(0, 5).map(({ title, link }) => ({ title, link }));
+          tests = sorted.slice(0, 5).map(({ id, title, link }) => ({ id, title, link }));
         }
 
         if (!isMountedRef.current || stopRequestedRef.current || responseRunIdRef.current !== runId) return;
