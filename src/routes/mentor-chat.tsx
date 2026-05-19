@@ -1195,16 +1195,6 @@ function MentorChatPage() {
     const msgText = textToSend || input;
     if (!msgText.trim()) return;
 
-    if (!isPro && messageCount >= 3) {
-      trackEvent(userid, "paywall_shown", "mentor_chat", {
-        reason: "free_message_limit",
-        attemptedMessage: msgText,
-        messageCount,
-      });
-      setShowPaywall(true);
-      return;
-    }
-
     const newUserMsg: Message = {
       id: Math.random().toString(),
       from: "user",
@@ -2139,14 +2129,6 @@ function MentorChatPage() {
             {/* Mic */}
             <button
               onClick={() => {
-                if (!isPro && messageCount >= 3) {
-                  trackEvent(userid, "paywall_shown", "mentor_chat", {
-                    reason: "voice_after_free_limit",
-                    messageCount,
-                  });
-                  setShowPaywall(true);
-                  return;
-                }
                 toggleListening();
               }}
               className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition-all ${
@@ -2181,25 +2163,9 @@ function MentorChatPage() {
                 type="text"
                 value={input}
                 onChange={(e) => {
-                  if (!isPro && messageCount >= 3) {
-                    trackEvent(userid, "paywall_shown", "mentor_chat", {
-                      reason: "typing_after_free_limit",
-                      messageCount,
-                    });
-                    setShowPaywall(true);
-                    return;
-                  }
                   setInput(e.target.value);
                 }}
-                onClick={() => {
-                  if (!isPro && messageCount >= 3) {
-                    trackEvent(userid, "paywall_shown", "mentor_chat", {
-                      reason: "input_focus_after_free_limit",
-                      messageCount,
-                    });
-                    setShowPaywall(true);
-                  }
-                }}
+                onClick={() => {}}
                 onKeyDown={(e) => e.key === "Enter" && handleSend()}
                 disabled={isTyping || isStreaming}
                 placeholder={
@@ -2234,22 +2200,6 @@ function MentorChatPage() {
             )}
           </div>
 
-          {/* Free counter */}
-          {!isPro && messageCount > 0 && (
-            <div className="flex items-center justify-center gap-2 mt-2">
-              <div className="flex gap-1">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className={`h-1 w-5 rounded-full transition-colors ${i < messageCount ? "bg-gradient-to-r from-[#2563eb] to-[#4f46e5]" : "bg-slate-200"}`}
-                  />
-                ))}
-              </div>
-              <span className="text-[10px] font-medium text-slate-500">
-                {messageCount}/3 free messages
-              </span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -2290,19 +2240,17 @@ function MentorChatPage() {
                 <MessageSquare className="absolute left-5 top-7 h-16 w-16 rotate-[-15deg]" />
                 <GraduationCap className="absolute right-4 top-8 h-20 w-20 rotate-[14deg]" />
               </div>
-              {!isPro && messageCount >= 3 ? null : (
-                <button
-                  onClick={() => {
-                    trackEvent(userid, "paywall_closed", "mentor_chat", {
-                      method: "x_button",
-                    });
-                    setShowPaywall(false);
-                  }}
-                  className="absolute top-4 right-4 z-10 p-1.5 rounded-full bg-white/80 text-[#53617c] shadow-sm hover:bg-white transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  trackEvent(userid, "paywall_closed", "mentor_chat", {
+                    method: "x_button",
+                  });
+                  setShowPaywall(false);
+                }}
+                className="absolute top-4 right-4 z-10 p-1.5 rounded-full bg-white/80 text-[#53617c] shadow-sm hover:bg-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
               <div className="paywall-avatar-float relative z-10 mx-auto mb-5 grid h-40 w-40 place-items-center overflow-hidden rounded-full border-[6px] border-white bg-white shadow-2xl shadow-blue-900/30 sm:h-44 sm:w-44">
                 <img
                   src={MEERA_PAYWALL_AVATAR_URL}
