@@ -34,6 +34,8 @@ jobs:
         with:
           name: node-app
           path: .
+          # Include dist/ even though it is in .gitignore
+          include-hidden-files: true
 
   deploy:
     runs-on: ubuntu-latest
@@ -62,4 +64,5 @@ jobs:
           app-name: 'meera-ai'
           slot-name: 'Production'
           package: .
+          startup-command: 'node backend/server.cjs'
           
