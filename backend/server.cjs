@@ -545,6 +545,7 @@ app.use('/api', requireAppSession);
 let cachedAdminToken = null;
 let cachedAdminTokenAt = 0;
 const ADMIN_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+let adminLoginInFlight = null;
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', ts: Date.now(), webhookConfigured: !!getConfiguredWebhookUrl() });
@@ -558,110 +559,131 @@ app.get('/', (req, res, next) => {
   res.send('Testbook AI Mentor Backend is running on port 3001. Please ensure ngrok is pointing to the FRONTEND port (usually 5173 or 8082) for the UI to work.');
 });
 
-// Initialize SQLite database
+// Initialize SQLite database — recreate if corrupted
 const databasePath = process.env.VERCEL
   ? path.join('/tmp', 'database.sqlite')
   : path.join(__dirname, 'database.sqlite');
-const db = new sqlite3.Database(databasePath, (err) => {
-  if (err) console.error('Error opening database', err.message);
-  else {
-    console.log('Connected to the SQLite database.');
-    db.run('PRAGMA journal_mode=WAL');
-    db.run('PRAGMA busy_timeout=5000');
-    db.run('PRAGMA cache_size=-16000');
-    db.run('PRAGMA synchronous=NORMAL');
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      userid TEXT PRIMARY KEY,
-      name TEXT,
-      phone TEXT
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS analysis (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userid TEXT,
-      testName TEXT,
-      score REAL,
-      totalMarks REAL,
-      accuracy INTEGER,
-      rank INTEGER,
-      totalStudents INTEGER,
-      attemptDate TEXT,
-      weakTopics TEXT,
-      strongTopics TEXT,
-      FOREIGN KEY(userid) REFERENCES users(userid)
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      eventId TEXT,
-      sessionId TEXT,
-      userId TEXT,
-      eventName TEXT NOT NULL,
-      page TEXT,
-      path TEXT,
-      url TEXT,
-      referrer TEXT,
-      viewport TEXT,
-      userAgent TEXT,
-      clientTimestamp TEXT,
-      serverTimestamp TEXT NOT NULL,
-      metadata TEXT,
-      rawPayload TEXT
-    )`, (eventsTableErr) => {
-      if (eventsTableErr) {
-        console.error('Could not initialize events table', eventsTableErr.message);
-        return;
-      }
-      db.run(`CREATE INDEX IF NOT EXISTS idx_events_user_time ON events (userId, serverTimestamp)`);
-      db.run(`CREATE INDEX IF NOT EXISTS idx_events_name_time ON events (eventName, serverTimestamp)`);
-      db.run(`CREATE INDEX IF NOT EXISTS idx_events_session ON events (sessionId)`);
-      // Purge events older than 30 days on startup
-      db.run(`DELETE FROM events WHERE serverTimestamp < datetime('now', '-30 days')`);
-    });
-    // Daily event cleanup at midnight
-    setInterval(() => {
-      db.run(`DELETE FROM events WHERE serverTimestamp < datetime('now', '-30 days')`);
-    }, 24 * 60 * 60 * 1000);
 
-    const analysisMetricColumns = [
-      ['attemptedQuestions', 'INTEGER'],
-      ['correctQuestions', 'INTEGER'],
-      ['incorrectQuestions', 'INTEGER'],
-      ['skippedQuestions', 'INTEGER'],
-      ['timeTakenSeconds', 'INTEGER'],
-      ['totalTimeAllottedSeconds', 'INTEGER'],
-      ['totalQuestions', 'INTEGER'],
-      ['percentile', 'REAL'],
-      ['scoreDiff', 'INTEGER'],
-      ['targetScore', 'REAL'],
-      ['aiInsight', 'TEXT'],
-      ['strongTopics', 'TEXT']
-    ];
+function openDatabase(filePath) {
+  const instance = new sqlite3.Database(filePath, (err) => {
+    if (err) console.error('Error opening database', err.message);
+  });
+  return instance;
+}
 
-    db.all('PRAGMA table_info(analysis)', (tableErr, rows) => {
-      if (tableErr) {
-        console.error('Could not inspect analysis table schema', tableErr.message);
-        return;
-      }
-
-      const existing = new Set((rows || []).map((row) => row.name));
-      const addColumnAt = (index) => {
-        if (index >= analysisMetricColumns.length) return;
-        const [columnName, columnType] = analysisMetricColumns[index];
-        if (existing.has(columnName)) {
-          addColumnAt(index + 1);
-          return;
-        }
-        db.run(`ALTER TABLE analysis ADD COLUMN ${columnName} ${columnType}`, (alterErr) => {
-          if (alterErr && !String(alterErr.message || '').includes('duplicate column name')) {
-            console.error(`Could not add ${columnName} column`, alterErr.message);
-          }
-          addColumnAt(index + 1);
+function initDb(instance) {
+  instance.serialize(() => {
+    instance.run('PRAGMA journal_mode=WAL');
+    instance.run('PRAGMA busy_timeout=5000');
+    instance.run('PRAGMA cache_size=-16000');
+    instance.run('PRAGMA synchronous=NORMAL');
+    // Verify integrity; if corrupt, delete and reopen
+    instance.get('PRAGMA integrity_check', (err, row) => {
+      if (err || (row && row.integrity_check !== 'ok')) {
+        console.error('[DB] Integrity check failed — recreating database:', err?.message || row?.integrity_check);
+        instance.close(() => {
+          try { fs.unlinkSync(filePath); } catch {}
+          const fresh = openDatabase(filePath);
+          setupTables(fresh);
+          Object.assign(db, fresh); // swap reference
         });
-      };
-
-      addColumnAt(0);
+        return;
+      }
+      setupTables(instance);
     });
-  }
-});
+  });
+}
+
+function setupTables(instance) {
+  console.log('Connected to the SQLite database.');
+  instance.run(`CREATE TABLE IF NOT EXISTS users (
+    userid TEXT PRIMARY KEY,
+    name TEXT,
+    phone TEXT
+  )`);
+  instance.run(`CREATE TABLE IF NOT EXISTS analysis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userid TEXT,
+    testName TEXT,
+    score REAL,
+    totalMarks REAL,
+    accuracy INTEGER,
+    rank INTEGER,
+    totalStudents INTEGER,
+    attemptDate TEXT,
+    weakTopics TEXT,
+    strongTopics TEXT,
+    FOREIGN KEY(userid) REFERENCES users(userid)
+  )`);
+  instance.run(`CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    eventId TEXT,
+    sessionId TEXT,
+    userId TEXT,
+    eventName TEXT NOT NULL,
+    page TEXT,
+    path TEXT,
+    url TEXT,
+    referrer TEXT,
+    viewport TEXT,
+    userAgent TEXT,
+    clientTimestamp TEXT,
+    serverTimestamp TEXT NOT NULL,
+    metadata TEXT,
+    rawPayload TEXT
+  )`, (eventsTableErr) => {
+    if (eventsTableErr) {
+      console.error('Could not initialize events table', eventsTableErr.message);
+      return;
+    }
+    instance.run(`CREATE INDEX IF NOT EXISTS idx_events_user_time ON events (userId, serverTimestamp)`);
+    instance.run(`CREATE INDEX IF NOT EXISTS idx_events_name_time ON events (eventName, serverTimestamp)`);
+    instance.run(`CREATE INDEX IF NOT EXISTS idx_events_session ON events (sessionId)`);
+    instance.run(`DELETE FROM events WHERE serverTimestamp < datetime('now', '-30 days')`);
+  });
+
+  setInterval(() => {
+    instance.run(`DELETE FROM events WHERE serverTimestamp < datetime('now', '-30 days')`);
+  }, 24 * 60 * 60 * 1000);
+
+  const analysisMetricColumns = [
+    ['attemptedQuestions', 'INTEGER'],
+    ['correctQuestions', 'INTEGER'],
+    ['incorrectQuestions', 'INTEGER'],
+    ['skippedQuestions', 'INTEGER'],
+    ['timeTakenSeconds', 'INTEGER'],
+    ['totalTimeAllottedSeconds', 'INTEGER'],
+    ['totalQuestions', 'INTEGER'],
+    ['percentile', 'REAL'],
+    ['scoreDiff', 'INTEGER'],
+    ['targetScore', 'REAL'],
+    ['aiInsight', 'TEXT'],
+    ['strongTopics', 'TEXT']
+  ];
+
+  instance.all('PRAGMA table_info(analysis)', (tableErr, rows) => {
+    if (tableErr) {
+      console.error('Could not inspect analysis table schema', tableErr.message);
+      return;
+    }
+    const existing = new Set((rows || []).map((row) => row.name));
+    const addColumnAt = (index) => {
+      if (index >= analysisMetricColumns.length) return;
+      const [columnName, columnType] = analysisMetricColumns[index];
+      if (existing.has(columnName)) { addColumnAt(index + 1); return; }
+      instance.run(`ALTER TABLE analysis ADD COLUMN ${columnName} ${columnType}`, (alterErr) => {
+        if (alterErr && !String(alterErr.message || '').includes('duplicate column name')) {
+          console.error(`Could not add ${columnName} column`, alterErr.message);
+        }
+        addColumnAt(index + 1);
+      });
+    };
+    addColumnAt(0);
+  });
+}
+
+const db = openDatabase(databasePath);
+initDb(db);
 
 function normalizePhone(value) {
   return String(value || '').replace(/\D/g, '');
@@ -733,26 +755,42 @@ async function adminLogin() {
     return cachedAdminToken;
   }
 
+  // Deduplicate concurrent login attempts — share a single in-flight request
+  if (adminLoginInFlight) return adminLoginInFlight;
+
   const EMAIL = process.env.EMAIL;
   const PASSWORD = process.env.PASSWORD;
   if (!EMAIL || !PASSWORD) throw new Error("Missing EMAIL or PASSWORD in .env");
 
   const loginUrl = process.env.LOGIN_URL || "https://lms-api.testbook.com/api/v2/admin/login";
   console.log(`[AUTH] Attempting login to ${loginUrl}`);
-  const data = await fetchJsonWithRetry(loginUrl, {
-    method: "POST",
-    headers: {
-      "Accept": "*/*",
-      "Content-Type": "application/x-www-form-urlencoded",
-      "x-tb-client": "lms,1.0",
-      "User-Agent": "curl/8.7.1"
-    },
-    body: `email=${encodeURIComponent(EMAIL)}&password=${encodeURIComponent(PASSWORD)}`
-  });
-  if (data.success !== true && data.success !== "true") throw new Error("Admin login failed");
-  cachedAdminToken = data.data.token;
-  cachedAdminTokenAt = Date.now();
-  return cachedAdminToken;
+
+  adminLoginInFlight = (async () => {
+    // Single attempt — no retries for login (avoid hammering and triggering 429)
+    const res = await fetch(loginUrl, {
+      method: "POST",
+      headers: {
+        "Accept": "*/*",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "x-tb-client": "lms,1.0",
+        "User-Agent": "curl/8.7.1"
+      },
+      body: `email=${encodeURIComponent(EMAIL)}&password=${encodeURIComponent(PASSWORD)}`
+    });
+    if (res.status === 429) {
+      const retryAfter = res.headers.get('Retry-After') || '60';
+      const err = new Error(`Admin login rate-limited. Retry after ${retryAfter}s`);
+      err.statusCode = 429;
+      throw err;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (data.success !== true && data.success !== "true") throw new Error("Admin login failed");
+    cachedAdminToken = data.data.token;
+    cachedAdminTokenAt = Date.now();
+    return cachedAdminToken;
+  })().finally(() => { adminLoginInFlight = null; });
+
+  return adminLoginInFlight;
 }
 
 async function searchUserByPhone(adminToken, phone) {
