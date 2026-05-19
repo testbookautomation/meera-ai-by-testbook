@@ -240,7 +240,7 @@ function getConfiguredWebhookUrl() {
 }
 
 const OPENAI_CHAT_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'openai/gpt-4o-mini';
 const GOOGLE_TTS_API_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 let cachedGoogleTtsAccessToken = null;
