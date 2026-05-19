@@ -2419,12 +2419,26 @@ async function handleFrontendRequest(req, res, next) {
   }
 }
 
-if (fs.existsSync(frontendClientPath) && fs.existsSync(frontendServerPath)) {
-  app.use(express.static(frontendClientPath));
-  app.use((req, res, next) => {
-    if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
-    return handleFrontendRequest(req, res, next);
-  });
+if (fs.existsSync(frontendClientPath)) {
+  app.use(express.static(frontendClientPath, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    }
+  }));
+
+  if (fs.existsSync(frontendServerPath)) {
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+      return handleFrontendRequest(req, res, next);
+    });
+  } else {
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(frontendClientPath, 'index.html'));
+    });
+  }
 }
 
 if (require.main === module) {

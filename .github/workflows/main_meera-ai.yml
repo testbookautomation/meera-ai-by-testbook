@@ -26,7 +26,7 @@ jobs:
       - name: npm install, build, and test
         run: |
           npm install
-          npm run build --if-present
+          npm run build
           npm run test --if-present
 
       - name: Upload artifact for deployment job
@@ -34,8 +34,8 @@ jobs:
         with:
           name: node-app
           path: .
-          # Include dist/ even though it is in .gitignore
-          include-hidden-files: true
+          # dist/ is in .gitignore but must be included — it was just built above
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest
