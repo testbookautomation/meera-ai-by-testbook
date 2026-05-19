@@ -98,12 +98,13 @@ function getClientIp(req) {
   return (forwardedFor ? forwardedFor.split(',')[0] : req.ip || req.socket.remoteAddress || 'unknown').trim();
 }
 
-function createRateLimiter({ windowMs, max, keyPrefix, message }) {
+function createRateLimiter({ windowMs, max, keyPrefix, message, keyFn }) {
   const buckets = new Map();
 
   return (req, res, next) => {
     const now = Date.now();
-    const key = `${keyPrefix}:${getClientIp(req)}`;
+    const rawKey = keyFn ? keyFn(req) : getClientIp(req);
+    const key = `${keyPrefix}:${rawKey}`;
     const bucket = buckets.get(key);
 
     if (!bucket || bucket.resetAt <= now) {
@@ -527,9 +528,13 @@ const generalApiLimiter = createRateLimiter({
 });
 const mentorChatLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 12,
+  max: 20,
   keyPrefix: 'mentor-chat',
-  message: 'Too many mentor chat requests. Please wait a moment.'
+  message: 'Too many mentor chat requests. Please wait a moment.',
+  // Key by userId so one user cannot exhaust the limit for everyone else
+  keyFn: (req) => {
+    try { return String(req.body?.userId || getClientIp(req)).slice(0, 64); } catch { return getClientIp(req); }
+  }
 });
 const ttsLimiter = createRateLimiter({
   windowMs: 60 * 1000,
@@ -734,14 +739,21 @@ function fetchJsonWithRetry(url, options = {}, retries = 2, delayMs = 300) {
         }
 
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status} from ${redactUrl(url)}`);
+          const err = new Error(`HTTP ${res.status} from ${redactUrl(url)}`);
+          err.statusCode = res.status;
+          // Don't retry rate-limit or auth errors — they won't self-resolve
+          if (res.status === 429 || res.status === 401 || res.status === 403) throw err;
+          throw err;
         }
 
         return data;
       } catch (err) {
         lastError = err;
-        if (attempt < retries) {
+        const noRetry = err.statusCode === 429 || err.statusCode === 401 || err.statusCode === 403;
+        if (attempt < retries && !noRetry) {
           await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)));
+        } else {
+          break;
         }
       }
     }
@@ -1971,7 +1983,56 @@ app.get('/api/debug/:userid', async (req, res) => {
 });
 
 
+// Per-user LMS data cache — avoids hammering LMS APIs on every chat message
+const USER_DATA_CACHE = new Map(); // userid → { data, fetchedAt, inFlight }
+const USER_DATA_TTL_MS = 8 * 60 * 1000; // 8 minutes
+
 async function fetchTestbookUserData(userid) {
+  const now = Date.now();
+  const cached = USER_DATA_CACHE.get(userid);
+
+  // Fresh cache hit
+  if (cached && !cached.inFlight && cached.data && (now - cached.fetchedAt) < USER_DATA_TTL_MS) {
+    return cached.data;
+  }
+
+  // Deduplicate concurrent fetches for the same user
+  if (cached?.inFlight) {
+    try { return await cached.inFlight; } catch {
+      // In-flight failed — fall through to stale or fresh fetch
+      if (cached?.data) return cached.data;
+    }
+  }
+
+  const promise = _doFetchTestbookUserData(userid)
+    .then((data) => {
+      USER_DATA_CACHE.set(userid, { data, fetchedAt: Date.now(), inFlight: null });
+      return data;
+    })
+    .catch((err) => {
+      // On failure return stale data rather than crashing the chat
+      const stale = USER_DATA_CACHE.get(userid);
+      USER_DATA_CACHE.set(userid, { data: stale?.data || null, fetchedAt: stale?.fetchedAt || 0, inFlight: null });
+      if (stale?.data) {
+        console.warn(`[AI Mentor] LMS fetch failed for ${maskValue(userid)}, using stale cache. Error: ${err.message}`);
+        return stale.data;
+      }
+      throw err;
+    });
+
+  USER_DATA_CACHE.set(userid, { data: cached?.data || null, fetchedAt: cached?.fetchedAt || 0, inFlight: promise });
+  return promise;
+}
+
+// Evict stale entries every 15 minutes to prevent unbounded growth
+setInterval(() => {
+  const cutoff = Date.now() - USER_DATA_TTL_MS * 2;
+  for (const [key, val] of USER_DATA_CACHE) {
+    if (!val.inFlight && val.fetchedAt < cutoff) USER_DATA_CACHE.delete(key);
+  }
+}, 15 * 60 * 1000);
+
+async function _doFetchTestbookUserData(userid) {
   let this_recommendations = [];
   try {
     console.log(`[AI Mentor] Triggering deep LMS fetch for ${maskValue(userid)}...`);
