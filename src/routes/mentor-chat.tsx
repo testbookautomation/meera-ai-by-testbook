@@ -22,7 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { jsPDF } from "jspdf";
-import { installGlobalEventTracking, trackEvent, webengageIdentify } from "../utils/tracking";
+import { installGlobalEventTracking, trackEvent, sendBeaconEvent, webengageIdentify } from "../utils/tracking";
 import { sendAiMentorMessage } from "@/services/aiMentorApi";
 import { fetchLmsAnalysis } from "@/services/lmsApi";
 import { openRazorpayCheckout } from "@/services/razorpay";
@@ -939,6 +939,9 @@ function MentorChatPage() {
   const fomoScoreRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
   const injectTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const chatOpenedAtRef = useRef<number>(Date.now());
+  const activeTimeRef = useRef<number>(0);       // cumulative ms page was visible
+  const activeStartRef = useRef<number | null>(Date.now()); // null when tab is hidden
   const recognitionRef = useRef<any>(null);
   const aiBusy = isTyping || isStreaming;
 
@@ -1127,11 +1130,49 @@ function MentorChatPage() {
       if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
       responseAbortControllerRef.current?.abort();
-      // Clear all inject card timeouts
       injectTimeoutsRef.current.forEach((t) => clearTimeout(t));
       injectTimeoutsRef.current = [];
-      // Stop speech recognition if active
       try { recognitionRef.current?.abort(); } catch {}
+    };
+  }, []);
+
+  // Session duration tracking
+  useEffect(() => {
+    chatOpenedAtRef.current = Date.now();
+    activeStartRef.current = Date.now();
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (activeStartRef.current !== null) {
+          activeTimeRef.current += Date.now() - activeStartRef.current;
+          activeStartRef.current = null;
+        }
+      } else {
+        activeStartRef.current = Date.now();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    const flushSessionEvent = () => {
+      const uid = useridRef.current;
+      if (!uid) return;
+      if (activeStartRef.current !== null) {
+        activeTimeRef.current += Date.now() - activeStartRef.current;
+        activeStartRef.current = null;
+      }
+      const totalMs = Date.now() - chatOpenedAtRef.current;
+      sendBeaconEvent(uid, "chat_session_ended", "mentor_chat", {
+        total_duration_seconds: Math.round(totalMs / 1000),
+        active_duration_seconds: Math.round(activeTimeRef.current / 1000),
+        messages_sent: messageCount,
+      });
+    };
+
+    window.addEventListener("beforeunload", flushSessionEvent);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("beforeunload", flushSessionEvent);
+      flushSessionEvent();
     };
   }, []);
 

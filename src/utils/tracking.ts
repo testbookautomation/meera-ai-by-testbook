@@ -176,6 +176,12 @@ function getTrackableElement(target: EventTarget | null) {
   );
 }
 
+const PREFIX = "meera_ai_";
+
+function prefixEvent(name: string): string {
+  return name.startsWith(PREFIX) ? name : `${PREFIX}${name}`;
+}
+
 export const trackEvent = async (
   userId: string,
   eventName: string,
@@ -184,8 +190,10 @@ export const trackEvent = async (
 ) => {
   if (!userId) return;
 
+  const name = prefixEvent(eventName);
+
   // Fire directly to WebEngage Web SDK (browser-side, instant)
-  fireWebengage(eventName, { ...metadata, page });
+  fireWebengage(name, { ...metadata, page });
 
   // Also forward to backend → Apps Script → WebEngage REST (server-side backup)
   try {
@@ -196,7 +204,7 @@ export const trackEvent = async (
         eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
         sessionId: getSessionId(),
         userId,
-        eventName,
+        eventName: name,
         page,
         clientTimestamp: new Date().toISOString(),
         metadata: safeMetadata(metadata),
@@ -207,6 +215,29 @@ export const trackEvent = async (
     // Tracking should never interrupt the user experience.
   }
 };
+
+export function sendBeaconEvent(
+  userId: string,
+  eventName: string,
+  page: string,
+  metadata: EventMetadata = {}
+) {
+  if (!userId || typeof navigator === "undefined" || !navigator.sendBeacon) return;
+  const name = prefixEvent(eventName);
+  const payload = JSON.stringify({
+    eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+    sessionId: getSessionId(),
+    userId,
+    eventName: name,
+    page,
+    clientTimestamp: new Date().toISOString(),
+    metadata: safeMetadata(metadata),
+    ...getPageContext(),
+  });
+  try {
+    navigator.sendBeacon("/api/events", new Blob([payload], { type: "application/json" }));
+  } catch { /* silent */ }
+}
 
 export function installGlobalEventTracking(getUserId: () => string, page: string) {
   if (typeof window === "undefined") return () => {};
